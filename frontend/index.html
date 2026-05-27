@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HVAC Equipment Health Dashboard</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ── Header ── -->
+  <header class="header">
+    <div class="header-inner">
+      <div class="header-title">
+        <span class="header-icon">⚙️</span>
+        <div>
+          <h1>HVAC Equipment Health</h1>
+          <p class="header-sub">Real-time anomaly detection · Isolation Forest · SHAP explanations</p>
+        </div>
+      </div>
+      <div class="header-status" id="api-status">
+        <span class="status-dot" id="status-dot"></span>
+        <span id="status-text">Connecting…</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── Fleet Overview Banner ── -->
+  <section class="fleet-banner" id="fleet-banner">
+    <div class="fleet-card critical">
+      <span class="fleet-count" id="count-critical">—</span>
+      <span class="fleet-label">Critical</span>
+    </div>
+    <div class="fleet-card warning">
+      <span class="fleet-count" id="count-warning">—</span>
+      <span class="fleet-label">Warning</span>
+    </div>
+    <div class="fleet-card monitor">
+      <span class="fleet-count" id="count-monitor">—</span>
+      <span class="fleet-label">Monitor</span>
+    </div>
+    <div class="fleet-card healthy">
+      <span class="fleet-count" id="count-healthy">—</span>
+      <span class="fleet-label">Healthy</span>
+    </div>
+    <div class="fleet-card total">
+      <span class="fleet-count" id="count-total">—</span>
+      <span class="fleet-label">Total Units</span>
+    </div>
+  </section>
+
+  <!-- ── Main Layout ── -->
+  <main class="main-layout">
+
+    <!-- ── Left: Score Panel ── -->
+    <section class="score-panel card">
+      <h2 class="panel-title">Score a Unit</h2>
+
+      <!-- Unit selector (populated from /units) -->
+      <div class="form-group">
+        <label for="unit-select">Select unit</label>
+        <select id="unit-select">
+          <option value="">— pick a unit or enter manual readings —</option>
+        </select>
+      </div>
+
+      <!-- Manual sensor input (collapsed by default) -->
+      <details class="manual-input" id="manual-input">
+        <summary>Enter sensor readings manually</summary>
+        <div class="sensor-grid">
+          <div class="form-group">
+            <label for="cop">COP (0–8)</label>
+            <input type="number" id="cop" step="0.01" min="0" max="8" placeholder="3.20" />
+          </div>
+          <div class="form-group">
+            <label for="delta-t-supply">ΔT Supply (°C)</label>
+            <input type="number" id="delta-t-supply" step="0.1" min="0" placeholder="9.5" />
+          </div>
+          <div class="form-group">
+            <label for="delta-t-refrig">ΔT Refrigerant (°C)</label>
+            <input type="number" id="delta-t-refrig" step="0.1" min="0" placeholder="18.0" />
+          </div>
+          <div class="form-group">
+            <label for="load-ratio">Load Ratio (0–1.5)</label>
+            <input type="number" id="load-ratio" step="0.01" min="0" max="1.5" placeholder="0.72" />
+          </div>
+          <div class="form-group">
+            <label for="air-temp">Outdoor Temp (°C)</label>
+            <input type="number" id="air-temp" step="0.1" placeholder="28.5" />
+          </div>
+          <div class="form-group">
+            <label for="hour">Hour of Day</label>
+            <input type="number" id="hour" step="1" min="0" max="23" placeholder="14" />
+          </div>
+        </div>
+      </details>
+
+      <button class="btn-primary" id="score-btn">Score Unit</button>
+      <div class="error-msg hidden" id="score-error"></div>
+
+      <!-- ── Health Gauge ── -->
+      <div class="gauge-container" id="gauge-container">
+        <svg class="gauge-svg" viewBox="0 0 200 120" xmlns="http://www.w3.org/2000/svg">
+          <!-- Background arc -->
+          <path id="gauge-bg"
+            d="M 20 110 A 80 80 0 0 1 180 110"
+            fill="none" stroke="#2a2d3e" stroke-width="18" stroke-linecap="round" />
+          <!-- Colored arc (filled by JS) -->
+          <path id="gauge-fill"
+            d="M 20 110 A 80 80 0 0 1 180 110"
+            fill="none" stroke="#3ecf8e" stroke-width="18" stroke-linecap="round"
+            stroke-dasharray="0 251.3"
+            style="transition: stroke-dasharray 0.8s ease, stroke 0.4s ease;" />
+          <!-- Score text -->
+          <text id="gauge-score" x="100" y="98" text-anchor="middle"
+            font-size="34" font-weight="700" fill="#e2e8f0">—</text>
+          <text id="gauge-label" x="100" y="116" text-anchor="middle"
+            font-size="11" fill="#94a3b8" letter-spacing="1.5">HEALTH SCORE</text>
+        </svg>
+
+        <!-- Tier badge -->
+        <div class="tier-badge hidden" id="tier-badge">—</div>
+        <!-- Anomaly flag -->
+        <div class="anomaly-flag hidden" id="anomaly-flag">⚠ ANOMALY DETECTED</div>
+      </div>
+    </section>
+
+    <!-- ── Center: SHAP Panel ── -->
+    <section class="shap-panel card">
+      <h2 class="panel-title">Score Explanation <span class="panel-note">(SHAP)</span></h2>
+      <p class="shap-intro">Which sensors are driving this unit's health score?</p>
+      <div class="shap-list" id="shap-list">
+        <div class="shap-placeholder">Score a unit to see explanations.</div>
+      </div>
+
+      <!-- Score breakdown stats -->
+      <div class="score-stats hidden" id="score-stats">
+        <div class="stat-row">
+          <span class="stat-label">IF Score (raw)</span>
+          <span class="stat-value" id="stat-iforest">—</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Anomaly Flag</span>
+          <span class="stat-value" id="stat-anomaly">—</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">LOF Flag</span>
+          <span class="stat-value" id="stat-lof">—</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">IF + LOF Agree</span>
+          <span class="stat-value" id="stat-agree">—</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Right: Alert Table ── -->
+    <section class="alert-panel card">
+      <h2 class="panel-title">
+        Fleet Triage
+        <button class="btn-ghost" id="refresh-btn" title="Refresh unit list">↻</button>
+      </h2>
+      <p class="alert-intro">All units · sorted worst-first</p>
+      <div class="table-scroll">
+        <table class="alert-table" id="alert-table">
+          <thead>
+            <tr>
+              <th>Unit</th>
+              <th>Score</th>
+              <th>Tier</th>
+              <th>⚠</th>
+            </tr>
+          </thead>
+          <tbody id="alert-tbody">
+            <tr><td colspan="4" class="table-placeholder">Loading units…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ── Footer ── -->
+  <footer class="footer">
+    <p>
+      Built by <a href="https://github.com/aalias01" target="_blank">Alvin Alias</a> ·
+      HVAC domain knowledge from 3 years at Rheem Manufacturing ·
+      <a href="https://github.com/aalias01/hvac-equipment-health" target="_blank">GitHub</a> ·
+      <a href="/docs" target="_blank">API Docs</a>
+    </p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

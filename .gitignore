@@ -1,0 +1,43 @@
+# Private local folders — never pushed to GitHub
+**/*_local/
+
+# Data files — download instructions in README
+data/raw/
+data/processed/
+*.csv
+*.parquet
+*.h5
+
+# Jupyter artifacts
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# Environment
+.env
+.venv/
+venv/
+env/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Model artifacts — gitignore all, then allow back API runtime artifacts
+*.pkl
+*.joblib
+models/*
+!models/.gitkeep
+!models/isolation_forest.joblib
+!models/isolation_forest_scaler.joblib
+!models/lof_model.joblib
+!models/scorer_meta.json
+!models/unit_baselines.joblib
