@@ -11,8 +11,10 @@ HVAC systems fail in predictable ways — compressor fouling, refrigerant charge
 
 **Built by an engineer who spent 3 years at Rheem Manufacturing designing these systems.**
 
-**Live demo:** [your-project.vercel.app](https://your-project.vercel.app) *(fill in after deploy)*  
-**API docs:** [your-api.onrender.com/docs](https://your-api.onrender.com/docs) *(fill in after deploy)*
+**Portfolio status:** scaffolded and code-reviewed; notebooks, model artifacts, screenshots, and deployment links still need to be completed before this should be treated as a finished portfolio project. See [PORTFOLIO_READINESS.md](PORTFOLIO_READINESS.md) for the remaining ship checklist.
+
+**Live demo:** coming after Vercel deploy  
+**API docs:** coming after Render deploy
 
 ---
 
@@ -84,7 +86,7 @@ These are not generic time-series features. They come from refrigeration thermod
 
 ## Key Results
 
-*Filled in after notebook runs.*
+*To be filled in after the notebooks run against ASHRAE data.*
 
 | Metric | Value | Notes |
 |--------|-------|-------|
@@ -134,8 +136,17 @@ uvicorn api.main:app --reload
 # Visit http://localhost:8000/docs
 
 # 6. Open the frontend
-# Open frontend/index.html — set API_BASE in app.js first
+# Open frontend/index.html
+# Optional: set localStorage.HVAC_API_BASE if your API is not on localhost:8000
 ```
+
+The API starts in degraded mode until model artifacts exist in `models/`. Run the notebooks through `03_anomaly_detection.ipynb` to create:
+
+- `models/isolation_forest.joblib`
+- `models/isolation_forest_scaler.joblib`
+- `models/lof_model.joblib`
+- `models/scorer_meta.json`
+- `models/unit_baselines.joblib`
 
 ---
 
@@ -185,6 +196,8 @@ hvac-equipment-health/
 **Backend (Render):** Push repo → Render → Blueprint → connect repo (reads `render.yaml`).  
 **Frontend (Vercel):** Connect repo → root directory `frontend/` → deploy.  
 After both deploy: update `API_BASE` in `app.js` and CORS `allow_origins` in `api/main.py`.
+
+For deployment details and the exact remaining steps before making the repository public, use [PORTFOLIO_READINESS.md](PORTFOLIO_READINESS.md).
 
 ---
 

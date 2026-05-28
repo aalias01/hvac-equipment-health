@@ -41,3 +41,6 @@ models/*
 !models/lof_model.joblib
 !models/scorer_meta.json
 !models/unit_baselines.joblib
+
+# AI-generated build guides — private scaffolding notes
+guides/

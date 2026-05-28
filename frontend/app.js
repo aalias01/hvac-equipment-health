@@ -10,8 +10,8 @@
  */
 
 // ── Config ────────────────────────────────────────────────────────────────
-// Update API_BASE after Render deploy.
-const API_BASE = "http://localhost:8000";
+// Override with: localStorage.setItem("HVAC_API_BASE", "https://your-api.onrender.com")
+const API_BASE = window.HVAC_API_BASE || localStorage.getItem("HVAC_API_BASE") || "http://localhost:8000";
 
 const TIER_COLORS = {
   healthy:  "#3ecf8e",
@@ -37,9 +37,11 @@ const $scoreStats = document.getElementById("score-stats");
 const $alertTbody = document.getElementById("alert-tbody");
 const $unitSelect = document.getElementById("unit-select");
 const $refreshBtn = document.getElementById("refresh-btn");
+const $apiDocsLink = document.getElementById("api-docs-link");
 
 // ── Startup ───────────────────────────────────────────────────────────────
 window.addEventListener("DOMContentLoaded", () => {
+  $apiDocsLink.href = `${API_BASE}/docs`;
   checkHealth();
   loadUnits();
   $scoreBtn.addEventListener("click", handleScore);
@@ -96,12 +98,12 @@ function renderAlertTable(units) {
     return;
   }
   $alertTbody.innerHTML = units.map(u => `
-    <tr data-building="${u.building_id}" class="unit-row">
-      <td style="font-family:monospace;font-size:11px;">${u.building_id ?? "—"}</td>
-      <td style="font-weight:600;color:${TIER_COLORS[u.health_tier] || "#e2e8f0"};">
+    <tr data-building="${escapeHtml(u.building_id ?? "")}" class="unit-row">
+      <td style="font-family:monospace;font-size:11px;">${escapeHtml(u.building_id ?? "—")}</td>
+      <td style="font-weight:600;color:${TIER_COLORS[sanitizeTier(u.health_tier)] || "#e2e8f0"};">
         ${u.health_score?.toFixed(1) ?? "—"}
       </td>
-      <td><span class="tier-chip ${u.health_tier}">${u.health_tier}</span></td>
+      <td><span class="tier-chip ${sanitizeTier(u.health_tier)}">${escapeHtml(u.health_tier ?? "unknown")}</span></td>
       <td>${u.anomaly_flag ? '<span class="anomaly-dot" title="Anomaly">●</span>' : ''}</td>
     </tr>
   `).join("");
@@ -118,7 +120,6 @@ function renderAlertTable(units) {
 }
 
 function populateUnitSelect(units) {
-  const existing = $unitSelect.innerHTML.split("\n")[0]; // keep placeholder
   $unitSelect.innerHTML = `<option value="">— pick a unit or enter manual readings —</option>`;
   (units || []).forEach(u => {
     const opt = document.createElement("option");
@@ -222,7 +223,7 @@ function parseIntOrNull(id) {
 // ── Gauge rendering ───────────────────────────────────────────────────────
 function renderGauge(data) {
   const score = data.health_score ?? 0;
-  const tier  = data.health_tier ?? "critical";
+  const tier  = sanitizeTier(data.health_tier);
   const color = TIER_COLORS[tier] || "#e2e8f0";
 
   // Arc: fill = (score / 100) × total arc length
@@ -264,7 +265,7 @@ function renderSHAP(data) {
     return `
       <div class="shap-item">
         <div class="shap-feature">
-          <span class="shap-feature-name">${f.feature}</span>
+          <span class="shap-feature-name">${escapeHtml(f.feature)}</span>
           <span class="shap-direction ${dirClass}">${dirLabel}</span>
         </div>
         <div class="shap-bar-bg">
@@ -299,4 +300,17 @@ function clearError() {
 function resetBtn() {
   $scoreBtn.disabled = false;
   $scoreBtn.textContent = "Score Unit";
+}
+
+function sanitizeTier(value) {
+  return ["healthy", "monitor", "warning", "critical"].includes(value) ? value : "critical";
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
