@@ -11,8 +11,6 @@ HVAC systems fail in predictable ways — compressor fouling, refrigerant charge
 
 **Built by an engineer who spent 3 years at Rheem Manufacturing designing these systems.**
 
-**Portfolio status:** scaffolded and code-reviewed; notebooks, model artifacts, screenshots, and deployment links still need to be completed before this should be treated as a finished portfolio project. See [PORTFOLIO_READINESS.md](PORTFOLIO_READINESS.md) for the remaining ship checklist.
-
 **Live demo:** coming after Vercel deploy  
 **API docs:** coming after Render deploy
 
@@ -86,15 +84,18 @@ These are not generic time-series features. They come from refrigeration thermod
 
 ## Key Results
 
-*To be filled in after the notebooks run against ASHRAE data.*
-
 | Metric | Value | Notes |
 |--------|-------|-------|
-| Units analyzed | — | From ASHRAE dataset |
-| Anomaly rate (contamination=0.05) | 5% | By construction; validated against EDA |
-| Health score range | 0–100 | Higher = healthier |
-| Top SHAP feature (typical) | — | Expected: COP or ΔT |
-| LOF vs IF agreement | — | % of flagged units in common |
+| Readings scored | 2,876,400 | Hourly chilled-water readings (4.18M raw, filtered for rolling-history coverage) |
+| Units analyzed | 497 | Buildings with ≥90 days of meter coverage |
+| Anomaly rate (contamination=0.05) | 5.0% (143,820 readings) | Sensitivity-checked at 0.02 / 0.05 / 0.10 — all 0.02-flagged points remain flagged at 0.05 |
+| Unit health scores | 35.0 – 74.0 (median 58.6) | Per-unit mean of the 0–100 reading-level score; 78 units land in the critical tier |
+| Top SHAP feature | `rolling_cop_std_24h` | 24-hour COP volatility — intermittent-fault signature — edges out COP level itself |
+| LOF vs IF agreement | 91.3% | On a 100k-reading comparison sample |
+
+![Health score distribution](figures/03_health_score_distribution.png)
+
+![SHAP summary](figures/03_shap_summary.png)
 
 ---
 
@@ -196,8 +197,6 @@ hvac-equipment-health/
 **Backend (Render):** Push repo → Render → Blueprint → connect repo (reads `render.yaml`).  
 **Frontend (Vercel):** Connect repo → root directory `frontend/` → deploy.  
 After both deploy: update `API_BASE` in `app.js` and CORS `allow_origins` in `api/main.py`.
-
-For deployment details and the exact remaining steps before making the repository public, use [PORTFOLIO_READINESS.md](PORTFOLIO_READINESS.md).
 
 ---
 

@@ -92,12 +92,40 @@ def load_raw(data_dir: str = "data/raw/") -> pd.DataFrame:
         cloud_coverage, primary_use
     """
     data_dir = Path(data_dir)
-    train = pd.read_csv(data_dir / "train.csv", parse_dates=[TIMESTAMP_COL])
-    meta  = pd.read_csv(data_dir / "building_metadata.csv")
-    weather = pd.read_csv(data_dir / "weather_train.csv", parse_dates=[TIMESTAMP_COL])
 
-    # Filter to chilled water (HVAC cooling) meter only
-    df = train[train[METER_COL] == 1].copy()
+    # train.csv is ~20M rows / 680MB — read in chunks with compact dtypes and
+    # filter to the chilled-water meter per chunk so peak memory stays low.
+    train_dtypes = {
+        BUILDING_ID_COL: "int16",
+        METER_COL: "int8",
+        METER_READING_COL: "float32",
+    }
+    chunks = []
+    for chunk in pd.read_csv(
+        data_dir / "train.csv",
+        dtype=train_dtypes,
+        parse_dates=[TIMESTAMP_COL],
+        chunksize=2_000_000,
+    ):
+        chunks.append(chunk[chunk[METER_COL] == 1])
+    df = pd.concat(chunks, ignore_index=True)
+    del chunks
+
+    meta = pd.read_csv(
+        data_dir / "building_metadata.csv",
+        usecols=["site_id", "building_id", "primary_use", "square_feet", "year_built"],
+        dtype={"site_id": "int8", "building_id": "int16",
+               "square_feet": "float32", "year_built": "float32"},
+    )
+    weather_cols = ["site_id", TIMESTAMP_COL, AIR_TEMP_COL, DEW_TEMP_COL,
+                    WIND_SPEED_COL, CLOUD_COVER_COL]
+    weather = pd.read_csv(
+        data_dir / "weather_train.csv",
+        usecols=weather_cols,
+        dtype={"site_id": "int8", AIR_TEMP_COL: "float32", DEW_TEMP_COL: "float32",
+               WIND_SPEED_COL: "float32", CLOUD_COVER_COL: "float32"},
+        parse_dates=[TIMESTAMP_COL],
+    )
 
     # Join building metadata
     df = df.merge(meta, on="building_id", how="left")
@@ -330,5 +358,5 @@ def get_feature_matrix(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     Handles missing columns gracefully — useful during ablation experiments.
     """
     available = [c for c in FEATURE_COLS if c in df.columns]
-    X = df[available].fillna(df[available].median())
+    X = df[available].fillna(df[available].median()).astype(np.float32)
     return X, available

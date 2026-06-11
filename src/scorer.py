@@ -88,12 +88,18 @@ class Scorer:
             n_jobs=-1,
         )
         self.lof: Optional[LocalOutlierFactor] = (
-            LocalOutlierFactor(n_neighbors=20, contamination=contamination, novelty=True)
+            LocalOutlierFactor(n_neighbors=20, contamination=contamination,
+                               novelty=True, n_jobs=-1)
             if use_lof else None
         )
         self.feature_names: list[str] = []
         self._unit_score_stats: dict[str, dict] = {}  # per-unit score normalization
         self.is_fitted = False
+
+    # LOF scalability caps — kNN queries on millions of rows are intractable,
+    # and a random sample preserves the density structure LOF needs.
+    LOF_MAX_FIT = 100_000     # max reference points for LOF fit
+    LOF_MAX_SCORE = 100_000   # max rows scored by LOF in score(); rest are NA
 
     def fit(self, X: pd.DataFrame, building_ids: Optional[pd.Series] = None) -> "Scorer":
         """
@@ -109,7 +115,15 @@ class Scorer:
 
         self.iforest.fit(X_scaled)
         if self.lof is not None:
-            self.lof.fit(X_scaled)
+            # LOF is kNN-based — fitting on millions of rows makes every later
+            # query intractable. A 100k random reference sample preserves the
+            # density structure while keeping predict() fast.
+            if len(X_scaled) > self.LOF_MAX_FIT:
+                rng = np.random.RandomState(42)
+                idx = rng.choice(len(X_scaled), self.LOF_MAX_FIT, replace=False)
+                self.lof.fit(X_scaled[idx])
+            else:
+                self.lof.fit(X_scaled)
 
         # Compute raw anomaly scores on training data for per-unit normalization
         raw_scores = self.iforest.decision_function(X_scaled)  # higher = more normal
@@ -125,7 +139,9 @@ class Scorer:
                 }
 
         self.is_fitted = True
-        n_flagged = (self.iforest.predict(X_scaled) == -1).sum()
+        # predict() would rerun decision_function over all rows — derive the
+        # flag from the scores we already have (predict == -1 iff score < 0).
+        n_flagged = int((raw_scores < 0).sum())
         print(f"Scorer fitted: {len(X):,} samples, {n_flagged} anomalies ({n_flagged/len(X)*100:.1f}%)")
         return self
 
@@ -172,27 +188,59 @@ class Scorer:
 
         X_scaled = self.scaler.transform(X)
         raw_scores = self.iforest.decision_function(X_scaled)
-        if_preds = self.iforest.predict(X_scaled)   # 1=normal, -1=anomaly
+        # predict == -1 iff decision_function < 0; avoids a second full pass
+        if_preds = np.where(raw_scores < 0, -1, 1)   # 1=normal, -1=anomaly
 
-        results = []
-        for i, (raw, pred) in enumerate(zip(raw_scores, if_preds)):
-            bid = str(building_ids.iloc[i]) if building_ids is not None else None
-            health = self._raw_to_health_score(raw, bid)
-            results.append({
-                "building_id": bid,
-                "health_score": round(health, 1),
-                "health_tier": score_to_tier(health),
-                "anomaly_flag": int(pred == -1),
-                "iforest_score": round(float(raw), 4),
-            })
+        # Vectorized health-score computation (a Python loop here would take
+        # hours on millions of rows). Per-unit p5/p95 normalization where unit
+        # stats exist, global fallback otherwise.
+        if building_ids is not None:
+            bids = building_ids.astype(str).to_numpy()
+            p5  = np.array([self._unit_score_stats.get(b, {}).get("p5", np.nan) for b in
+                            pd.unique(bids)])
+            p95 = np.array([self._unit_score_stats.get(b, {}).get("p95", np.nan) for b in
+                            pd.unique(bids)])
+            stats_map = pd.DataFrame({"building_id": pd.unique(bids), "p5": p5, "p95": p95})
+            tmp = pd.DataFrame({"building_id": bids, "raw": raw_scores}).merge(
+                stats_map, on="building_id", how="left")
+            normalized = np.where(
+                tmp["p5"].notna(),
+                (tmp["raw"] - tmp["p5"]) / (tmp["p95"] - tmp["p5"] + 1e-6),
+                (tmp["raw"] + 0.5) / 0.5,
+            )
+        else:
+            bids = np.full(len(X), None)
+            normalized = (raw_scores + 0.5) / 0.5
 
-        out = pd.DataFrame(results)
+        health = np.clip(normalized * 100, 0, 100).round(1)
+        tiers = np.select(
+            [health >= 90, health >= 70, health >= 50],
+            ["healthy", "monitor", "warning"],
+            default="critical",
+        )
 
-        # LOF comparison (optional)
+        out = pd.DataFrame({
+            "building_id": bids,
+            "health_score": health,
+            "health_tier": tiers,
+            "anomaly_flag": (if_preds == -1).astype(int),
+            "iforest_score": np.round(raw_scores, 4),
+        })
+
+        # LOF comparison (optional). kNN queries don't scale to millions of
+        # rows — above LOF_MAX_SCORE, score a random subset and leave the rest
+        # NA (pandas nullable Int8) so agreement stats remain unbiased.
         if self.lof is not None:
-            lof_preds = self.lof.predict(X_scaled)
-            out["lof_flag"] = (lof_preds == -1).astype(int)
-            out["if_lof_agree"] = (out["anomaly_flag"] == out["lof_flag"]).astype(int)
+            if len(X_scaled) > self.LOF_MAX_SCORE:
+                rng = np.random.RandomState(42)
+                idx = rng.choice(len(X_scaled), self.LOF_MAX_SCORE, replace=False)
+                lof_flag = pd.array([pd.NA] * len(out), dtype="Int8")
+                lof_flag[idx] = (self.lof.predict(X_scaled[idx]) == -1).astype(int)
+            else:
+                lof_flag = pd.array(
+                    (self.lof.predict(X_scaled) == -1).astype(int), dtype="Int8")
+            out["lof_flag"] = lof_flag
+            out["if_lof_agree"] = (out["anomaly_flag"] == out["lof_flag"]).astype("Int8")
 
         return out
 
