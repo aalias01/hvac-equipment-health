@@ -60,8 +60,7 @@ app.add_middleware(
         "http://localhost:3000",
         "http://localhost:8080",
         "http://127.0.0.1:8080",
-        # Add Vercel URL after deploy:
-        # "https://your-project.vercel.app",
+        "https://hvac-equipment-health.vercel.app",
     ],
     allow_credentials=False,
     allow_methods=["GET", "POST"],

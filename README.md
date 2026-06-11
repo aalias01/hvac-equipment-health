@@ -3,7 +3,7 @@
 > **Predict equipment degradation before failure — domain-engineered features only an HVAC engineer would know to build.**
 
 [![Python](https://img.shields.io/badge/Python-3.11-blue)](https://www.python.org/)
-[![scikit-learn](https://img.shields.io/badge/scikit--learn-1.3-orange)](https://scikit-learn.org/)
+[![scikit-learn](https://img.shields.io/badge/scikit--learn-1.7-orange)](https://scikit-learn.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110-teal)](https://fastapi.tiangolo.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -11,8 +11,8 @@ HVAC systems fail in predictable ways — compressor fouling, refrigerant charge
 
 **Built by an engineer who spent 3 years at Rheem Manufacturing designing these systems.**
 
-**Live demo:** coming after Vercel deploy  
-**API docs:** coming after Render deploy
+**Live demo:** https://hvac-equipment-health.vercel.app  
+**API docs:** https://hvac-health-api.onrender.com/docs
 
 ---
 
@@ -138,7 +138,8 @@ uvicorn api.main:app --reload
 
 # 6. Open the frontend
 # Open frontend/index.html
-# Optional: set localStorage.HVAC_API_BASE if your API is not on localhost:8000
+# It points at the deployed API by default; for a local API run:
+# localStorage.setItem("HVAC_API_BASE", "http://localhost:8000")
 ```
 
 The API starts in degraded mode until model artifacts exist in `models/`. Run the notebooks through `03_anomaly_detection.ipynb` to create:

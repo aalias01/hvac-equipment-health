@@ -11,7 +11,7 @@
 
 // ── Config ────────────────────────────────────────────────────────────────
 // Override with: localStorage.setItem("HVAC_API_BASE", "https://your-api.onrender.com")
-const API_BASE = window.HVAC_API_BASE || localStorage.getItem("HVAC_API_BASE") || "http://localhost:8000";
+const API_BASE = window.HVAC_API_BASE || localStorage.getItem("HVAC_API_BASE") || "https://hvac-health-api.onrender.com";
 
 const TIER_COLORS = {
   healthy:  "#3ecf8e",
