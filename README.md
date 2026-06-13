@@ -1,6 +1,6 @@
 # HVAC Equipment Health Scoring
 
-> **Predict equipment degradation before failure — domain-engineered features only an HVAC engineer would know to build.**
+> **Predicting HVAC equipment degradation from physics-derived features: COP, temperature deltas, and load ratio. Domain knowledge built from 3 years of product development at Rheem Manufacturing.**
 
 [![Python](https://img.shields.io/badge/Python-3.11-blue)](https://www.python.org/)
 [![scikit-learn](https://img.shields.io/badge/scikit--learn-1.7-orange)](https://scikit-learn.org/)
@@ -201,16 +201,4 @@ After both deploy: update `API_BASE` in `app.js` and CORS `allow_origins` in `ap
 
 ---
 
-## Interview Context
-
-1. **The COP story:** *"Coefficient of Performance is the ratio of cooling output to power input — the single most important efficiency signal in refrigeration. It's the first number any HVAC engineer looks at when diagnosing a failing unit. Declining COP precedes compressor failure by weeks. Most DS candidates would never engineer that feature."*
-
-2. **Unsupervised framing:** *"HVAC fault data is almost never labeled in practice — operators know something went wrong but rarely document it in a way a model can use. Isolation Forest doesn't need labels; it scores by how easily a point isolates from the rest. I set contamination=0.05 based on industry rule of thumb and validated it against physically unusual readings in EDA."*
-
-3. **The health score translation:** *"I deliberately translated model output into engineering language — a 0–100 gauge rather than an anomaly probability. Operations staff don't think in probabilities; they think in traffic lights and thresholds. SHAP on top tells them which sensor is driving the score for that specific unit."*
-
-4. **Domain moat:** *"This is the only project in my portfolio where 12 years of engineering experience is the competitive advantage, not just the context. No bootcamp graduate is going to engineer COP and ΔT features from scratch."*
-
----
-
-*Built by [Alvin Alias](https://github.com/aalias01) — MS Data Science, University of Washington · 3 years HVAC product development at Rheem Manufacturing*
+*Built by [Alvin Alias](https://github.com/aalias01) · MS Data Science, University of Washington · 3 years HVAC product development at Rheem Manufacturing*
