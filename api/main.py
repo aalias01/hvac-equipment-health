@@ -61,6 +61,8 @@ app.add_middleware(
         "http://localhost:8080",
         "http://127.0.0.1:8080",
         "https://hvac-equipment-health.vercel.app",
+        # Portfolio landing live-model playground (alvinalias.com).
+        "https://alvinalias.com", "https://www.alvinalias.com",
     ],
     allow_credentials=False,
     allow_methods=["GET", "POST"],
