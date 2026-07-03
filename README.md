@@ -11,7 +11,7 @@ HVAC systems fail in predictable ways — compressor fouling, refrigerant charge
 
 **Built by an engineer who spent 3 years at Rheem Manufacturing designing these systems.**
 
-**Live demo:** https://hvac-equipment-health.vercel.app  
+**Live demo:** https://hvac.alvinalias.com  
 **API docs:** https://hvac-health-api.onrender.com/docs
 
 ---

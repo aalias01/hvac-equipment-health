@@ -60,7 +60,8 @@ app.add_middleware(
         "http://localhost:3000",
         "http://localhost:8080",
         "http://127.0.0.1:8080",
-        "https://hvac-equipment-health.vercel.app",
+        "https://hvac.alvinalias.com",               # canonical demo (Primary)
+        "https://hvac-equipment-health.vercel.app",  # legacy, 308-redirects to subdomain
         # Portfolio landing live-model playground (alvinalias.com).
         "https://alvinalias.com", "https://www.alvinalias.com",
     ],
