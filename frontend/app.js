@@ -1,316 +1,538 @@
-/**
- * app.js — HVAC Equipment Health Dashboard
- *
- * Responsibilities:
- *   - Health check on load (GET /health)
- *   - Load fleet summary (GET /units) → fleet banner + alert table
- *   - Score a unit (POST /score) → health gauge + SHAP panel
- *   - Health gauge SVG arc animation
- *   - Alert table row click → auto-fill and score
- */
+const PRODUCTION_API_BASE = "https://hvac-health-api.onrender.com";
+const API_BASE = window.HVAC_API_BASE || localStorage.getItem("HVAC_API_BASE") || PRODUCTION_API_BASE;
 
-// ── Config ────────────────────────────────────────────────────────────────
-// Override with: localStorage.setItem("HVAC_API_BASE", "https://your-api.onrender.com")
-const API_BASE = window.HVAC_API_BASE || localStorage.getItem("HVAC_API_BASE") || "https://hvac-health-api.onrender.com";
-
-const TIER_COLORS = {
-  healthy:  "#3ecf8e",
-  monitor:  "#63b3ed",
-  warning:  "#f5a623",
-  critical: "#e53e3e",
+const DEFAULT_READING = {
+  cop_proxy: 3.0,
+  delta_t_supply_proxy: 9.0,
+  delta_t_refrigerant_proxy: 17.0,
+  load_ratio: 0.70,
 };
 
-// Gauge arc path total length (half-circle: π × r = π × 80 ≈ 251.3)
-const GAUGE_ARC_LENGTH = 251.3;
+const FEATURE_GLOSSES = {
+  rolling_cop_std_24h: "COP volatility over 24h",
+  cop_proxy: "COP level",
+  delta_t_supply_proxy: "supply delta-T",
+  delta_t_refrigerant_proxy: "refrigerant delta-T",
+  load_ratio: "load vs rated",
+};
 
-// ── DOM refs ──────────────────────────────────────────────────────────────
-const $statusDot  = document.getElementById("status-dot");
-const $statusText = document.getElementById("status-text");
-const $scoreBtn   = document.getElementById("score-btn");
-const $scoreError = document.getElementById("score-error");
-const $gaugeFill  = document.getElementById("gauge-fill");
-const $gaugeScore = document.getElementById("gauge-score");
-const $tierBadge  = document.getElementById("tier-badge");
-const $anomalyFlag = document.getElementById("anomaly-flag");
-const $shapList   = document.getElementById("shap-list");
-const $scoreStats = document.getElementById("score-stats");
-const $alertTbody = document.getElementById("alert-tbody");
-const $unitSelect = document.getElementById("unit-select");
-const $refreshBtn = document.getElementById("refresh-btn");
-const $apiDocsLink = document.getElementById("api-docs-link");
+const state = {
+  health: null,
+  units: [],
+  recent: [],
+  currentScore: null,
+  currentTier: null,
+  warmups: {},
+};
 
-// ── Startup ───────────────────────────────────────────────────────────────
+const els = {
+  apiDocsLink: document.getElementById("api-docs-link"),
+  footerDocsLink: document.getElementById("footer-docs-link"),
+  statusText: document.getElementById("status-text"),
+  modeToggle: document.getElementById("mode-toggle"),
+  refreshFleet: document.getElementById("refresh-fleet"),
+  fleetTitle: document.getElementById("fleet-title"),
+  fleetMessage: document.getElementById("fleet-message"),
+  counts: {
+    critical: document.getElementById("count-critical"),
+    warning: document.getElementById("count-warning"),
+    monitor: document.getElementById("count-monitor"),
+    healthy: document.getElementById("count-healthy"),
+    total: document.getElementById("count-total"),
+  },
+  scoreFleet: document.getElementById("score-fleet"),
+  scoreManual: document.getElementById("score-manual"),
+  scoreError: document.getElementById("score-error"),
+  runLog: document.getElementById("run-log"),
+  recentPulls: document.getElementById("recent-pulls"),
+  scoreValue: document.getElementById("score-value"),
+  scoreLabel: document.getElementById("score-label"),
+  tierChip: document.getElementById("tier-chip"),
+  healthScale: document.getElementById("health-scale"),
+  crossCheck: document.getElementById("cross-check"),
+  anomalyLine: document.getElementById("anomaly-line"),
+  deflectionList: document.getElementById("deflection-list"),
+};
+
 window.addEventListener("DOMContentLoaded", () => {
-  $apiDocsLink.href = `${API_BASE}/docs`;
+  els.apiDocsLink.href = `${API_BASE}/docs`;
+  els.footerDocsLink.href = `${API_BASE}/docs`;
+  initMode();
+  renderHealthScale();
+  bindEvents();
   checkHealth();
   loadUnits();
-  $scoreBtn.addEventListener("click", handleScore);
-  $refreshBtn.addEventListener("click", loadUnits);
-  $unitSelect.addEventListener("change", handleUnitSelectChange);
 });
 
-// ── Health check ──────────────────────────────────────────────────────────
+function bindEvents() {
+  els.modeToggle.addEventListener("click", () => {
+    const next = document.documentElement.dataset.theme === "night" ? "day" : "night";
+    setTheme(next, true);
+  });
+  els.refreshFleet.addEventListener("click", loadUnits);
+  els.scoreFleet.addEventListener("click", scoreFleetUnit);
+  els.scoreManual.addEventListener("click", scoreManualReading);
+}
+
+function initMode() {
+  const theme = document.documentElement.dataset.theme || "day";
+  setTheme(theme, false);
+}
+
+function setTheme(theme, persist) {
+  const clean = theme === "night" ? "night" : "day";
+  const mode = clean === "night" ? "dark" : "light";
+  document.documentElement.dataset.theme = clean;
+  els.modeToggle.setAttribute("aria-pressed", clean === "night" ? "true" : "false");
+  els.modeToggle.setAttribute("aria-label", clean === "night" ? "Switch to light mode" : "Switch to dark mode");
+  if (!persist) return;
+  localStorage.setItem("mode", mode);
+  if (location.hostname.endsWith("alvinalias.com")) {
+    document.cookie = `mode=${mode}; Domain=.alvinalias.com; Path=/; Max-Age=31536000; SameSite=Lax`;
+  }
+}
+
 async function checkHealth() {
+  const started = performance.now();
+  const warmup = scheduleWarmup("mini", started, false);
   try {
-    const res = await fetch(`${API_BASE}/health`);
-    const data = await res.json();
+    const response = await fetch(`${API_BASE}/health`);
+    const data = await response.json();
     if (data.scorer_loaded) {
-      setStatus("ok", `API ready · ${data.feature_count} features`);
+      state.health = data;
+      els.statusText.textContent = `scorer ready · ${data.feature_count} features`;
     } else {
-      setStatus("degraded", "API running · models not loaded");
+      els.statusText.textContent = "scorer not loaded";
     }
+    finishWarmup(warmup);
+    renderHealthScale(state.currentScore, state.currentTier);
   } catch {
-    setStatus("error", "API unreachable");
+    cancelWarmup(warmup);
+    els.statusText.textContent = "server unreachable right now";
   }
 }
 
-function setStatus(state, text) {
-  $statusDot.className = `status-dot ${state}`;
-  $statusText.textContent = text;
-}
-
-// ── Fleet overview ────────────────────────────────────────────────────────
 async function loadUnits() {
-  $alertTbody.innerHTML = `<tr><td colspan="4" class="table-placeholder"><span class="spinner"></span>Loading…</td></tr>`;
+  els.fleetMessage.classList.remove("is-error");
+  els.fleetMessage.textContent = "pulling the fleet";
+  setFleetCounts();
   try {
-    const res = await fetch(`${API_BASE}/units`);
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
-    renderFleetBanner(data);
-    renderAlertTable(data.units);
-    populateUnitSelect(data.units);
-  } catch (e) {
-    $alertTbody.innerHTML = `<tr><td colspan="4" class="table-placeholder">Could not load units (${e.message})</td></tr>`;
+    const response = await fetch(`${API_BASE}/units`);
+    if (!response.ok) {
+      throw new Error(await readError(response));
+    }
+    const data = await response.json();
+    state.units = Array.isArray(data.units) ? data.units : [];
+    renderFleet(data);
+  } catch (error) {
+    state.units = [];
+    els.fleetMessage.classList.add("is-error");
+    els.fleetMessage.textContent = `Could not load the fleet. ${error.message}`;
   }
 }
 
-function renderFleetBanner(data) {
-  document.getElementById("count-critical").textContent = data.n_critical;
-  document.getElementById("count-warning").textContent  = data.n_warning;
-  document.getElementById("count-monitor").textContent  = data.n_monitor;
-  document.getElementById("count-healthy").textContent  = data.n_healthy;
-  document.getElementById("count-total").textContent    = data.total;
+function renderFleet(data) {
+  const stamp = data.snapshot_generated ? ` · scored ${data.snapshot_generated}` : "";
+  els.fleetTitle.textContent = `The fleet · ${data.total} units, scored from the meter study${stamp}`;
+  els.fleetMessage.textContent = "";
+  setFleetCounts(data);
 }
 
-function renderAlertTable(units) {
-  if (!units || units.length === 0) {
-    $alertTbody.innerHTML = `<tr><td colspan="4" class="table-placeholder">No units loaded yet.</td></tr>`;
-    return;
-  }
-  $alertTbody.innerHTML = units.map(u => `
-    <tr data-building="${escapeHtml(u.building_id ?? "")}" class="unit-row">
-      <td style="font-family:monospace;font-size:11px;">${escapeHtml(u.building_id ?? "—")}</td>
-      <td style="font-weight:600;color:${TIER_COLORS[sanitizeTier(u.health_tier)] || "#e2e8f0"};">
-        ${u.health_score?.toFixed(1) ?? "—"}
-      </td>
-      <td><span class="tier-chip ${sanitizeTier(u.health_tier)}">${escapeHtml(u.health_tier ?? "unknown")}</span></td>
-      <td>${u.anomaly_flag ? '<span class="anomaly-dot" title="Anomaly">●</span>' : ''}</td>
-    </tr>
-  `).join("");
-
-  // Row click → auto-select and score
-  document.querySelectorAll(".unit-row").forEach(row => {
-    row.addEventListener("click", () => {
-      const bid = row.dataset.building;
-      $unitSelect.value = bid;
-      handleUnitSelectChange();
-      handleScore();
-    });
-  });
+function setFleetCounts(data = {}) {
+  els.counts.critical.textContent = formatCount(data.n_critical);
+  els.counts.warning.textContent = formatCount(data.n_warning);
+  els.counts.monitor.textContent = formatCount(data.n_monitor);
+  els.counts.healthy.textContent = formatCount(data.n_healthy);
+  els.counts.total.textContent = formatCount(data.total);
 }
 
-function populateUnitSelect(units) {
-  $unitSelect.innerHTML = `<option value="">— pick a unit or enter manual readings —</option>`;
-  (units || []).forEach(u => {
-    const opt = document.createElement("option");
-    opt.value = u.building_id;
-    const tierEmoji = { healthy: "✅", monitor: "🔵", warning: "⚠️", critical: "🔴" }[u.health_tier] ?? "";
-    opt.textContent = `${tierEmoji} ${u.building_id}  (${u.health_score?.toFixed(1) ?? "?"})`;
-    $unitSelect.appendChild(opt);
-  });
-}
-
-// ── Unit select → fill hidden field for API call ──────────────────────────
-let _selectedUnit = null;
-
-function handleUnitSelectChange() {
-  const bid = $unitSelect.value;
-  _selectedUnit = bid || null;
-}
-
-// ── Scoring ───────────────────────────────────────────────────────────────
-async function handleScore() {
+async function scoreFleetUnit() {
   clearError();
-  $scoreBtn.disabled = true;
-  $scoreBtn.innerHTML = `<span class="spinner"></span>Scoring…`;
-
-  const reading = buildReading();
-  if (!reading) {
-    showError("Enter at least COP, ΔT Supply, ΔT Refrigerant, and Load Ratio.");
-    resetBtn();
+  if (state.units.length === 0) {
+    await loadUnits();
+  }
+  if (state.units.length === 0) {
+    showError("Could not load the fleet.", "no units returned");
     return;
   }
 
+  const unit = drawUnit();
+  const id = String(unit.building_id);
+  const reading = {
+    building_id: id,
+    ...DEFAULT_READING,
+    ...dateFields(),
+  };
+
+  setLog([`> unit ${id} drawn from the fleet table`, "> representative readings scored against this unit's own baseline"]);
+  await scoreReading(reading, true);
+}
+
+async function scoreManualReading() {
+  clearError();
+  const reading = buildManualReading();
+  if (!reading) {
+    showError("Enter at least COP, both delta-T values, and load ratio.");
+    return;
+  }
+  setLog(["> manual readings sent to the scorer"]);
+  await scoreReading(reading, false);
+}
+
+async function scoreReading(reading, recordRecent) {
+  const started = performance.now();
+  const warmup = scheduleWarmup("main", started, true);
+  setBusy(true);
   try {
-    const res = await fetch(`${API_BASE}/score?shap=true`, {
+    const response = await fetch(`${API_BASE}/score?shap=true`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(reading),
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || res.statusText);
+    if (!response.ok) {
+      throw new Error(await readError(response));
     }
-    const data = await res.json();
-    renderGauge(data);
-    renderSHAP(data);
-    renderStats(data);
-  } catch (e) {
-    showError(e.message);
+    const data = await response.json();
+    finishWarmup(warmup);
+    const seconds = ((performance.now() - started) / 1000).toFixed(1);
+    appendLog(`> scored in ${seconds} s · both detectors ran`);
+    renderScore(data);
+    if (recordRecent) {
+      addRecent(data);
+    }
+  } catch (error) {
+    cancelWarmup(warmup);
+    const network = error instanceof TypeError;
+    if (network) {
+      showError(
+        "Could not score this unit. This runs on a free tier that sleeps between visitors. First start takes 30 to 60 seconds; runs after that are quick. Try again in a moment.",
+        "network error",
+      );
+    } else {
+      showError(`Could not score this unit. ${error.message}`);
+    }
   } finally {
-    resetBtn();
+    setBusy(false);
   }
 }
 
-function buildReading() {
-  // If a unit is selected from the table, only send building_id + any manual overrides
-  const cop     = parseFloat(document.getElementById("cop").value);
-  const dtSupp  = parseFloat(document.getElementById("delta-t-supply").value);
-  const dtRef   = parseFloat(document.getElementById("delta-t-refrig").value);
-  const load    = parseFloat(document.getElementById("load-ratio").value);
-
-  // Require at least one manual value OR a selected unit
-  if (_selectedUnit && isNaN(cop) && isNaN(dtSupp)) {
-    // Unit selected but no manual reading — use default demo values
-    return {
-      building_id: _selectedUnit,
-      cop_proxy: 3.0,
-      delta_t_supply_proxy: 9.0,
-      delta_t_refrigerant_proxy: 17.0,
-      load_ratio: 0.70,
-      hour_of_day: new Date().getHours(),
-      day_of_week: new Date().getDay(),
-      is_weekend: [0,6].includes(new Date().getDay()) ? 1 : 0,
-      month: new Date().getMonth() + 1,
-    };
+function buildManualReading() {
+  const cop = readNumber("cop");
+  const supply = readNumber("delta-t-supply");
+  const refrigerant = readNumber("delta-t-refrigerant");
+  const load = readNumber("load-ratio");
+  if ([cop, supply, refrigerant, load].some((value) => value === null)) {
+    return null;
   }
-
-  if (isNaN(cop) || isNaN(dtSupp) || isNaN(dtRef) || isNaN(load)) return null;
-
   return {
-    building_id: _selectedUnit || null,
+    ...dateFields(),
     cop_proxy: cop,
-    delta_t_supply_proxy: dtSupp,
-    delta_t_refrigerant_proxy: dtRef,
+    delta_t_supply_proxy: supply,
+    delta_t_refrigerant_proxy: refrigerant,
     load_ratio: load,
-    air_temperature: parseFloatOrNull("air-temp"),
-    hour_of_day: parseIntOrNull("hour"),
-    day_of_week: new Date().getDay(),
-    is_weekend: [0,6].includes(new Date().getDay()) ? 1 : 0,
-    month: new Date().getMonth() + 1,
+    air_temperature: readNumber("air-temperature"),
+    hour_of_day: readInteger("hour-of-day"),
   };
 }
 
-function parseFloatOrNull(id) {
-  const v = parseFloat(document.getElementById(id)?.value);
-  return isNaN(v) ? null : v;
+function dateFields() {
+  const now = new Date();
+  const day = now.getDay();
+  return {
+    hour_of_day: now.getHours(),
+    day_of_week: day,
+    is_weekend: day === 0 || day === 6 ? 1 : 0,
+    month: now.getMonth() + 1,
+  };
 }
-function parseIntOrNull(id) {
-  const v = parseInt(document.getElementById(id)?.value, 10);
-  return isNaN(v) ? null : v;
+
+function drawUnit() {
+  const drawn = getDrawnUnits();
+  let pool = state.units.filter((unit) => !drawn.has(String(unit.building_id)));
+  if (pool.length === 0) {
+    sessionStorage.removeItem("hvacDrawnUnits");
+    pool = state.units.slice();
+  }
+  const index = Math.floor(Math.random() * pool.length);
+  const unit = pool[index];
+  drawn.add(String(unit.building_id));
+  sessionStorage.setItem("hvacDrawnUnits", JSON.stringify(Array.from(drawn)));
+  return unit;
 }
 
-// ── Gauge rendering ───────────────────────────────────────────────────────
-function renderGauge(data) {
-  const score = data.health_score ?? 0;
-  const tier  = sanitizeTier(data.health_tier);
-  const color = TIER_COLORS[tier] || "#e2e8f0";
-
-  // Arc: fill = (score / 100) × total arc length
-  const filled = (score / 100) * GAUGE_ARC_LENGTH;
-  const empty  = GAUGE_ARC_LENGTH - filled;
-  $gaugeFill.setAttribute("stroke-dasharray", `${filled} ${empty}`);
-  $gaugeFill.setAttribute("stroke", color);
-
-  $gaugeScore.textContent = score.toFixed(0);
-  $gaugeScore.setAttribute("fill", color);
-
-  // Tier badge
-  $tierBadge.textContent  = tier.toUpperCase();
-  $tierBadge.className    = `tier-badge ${tier}`;
-  $tierBadge.classList.remove("hidden");
-
-  // Anomaly flag
-  if (data.anomaly_flag === 1) {
-    $anomalyFlag.classList.remove("hidden");
-  } else {
-    $anomalyFlag.classList.add("hidden");
+function getDrawnUnits() {
+  try {
+    return new Set(JSON.parse(sessionStorage.getItem("hvacDrawnUnits") || "[]"));
+  } catch {
+    return new Set();
   }
 }
 
-// ── SHAP panel ────────────────────────────────────────────────────────────
-function renderSHAP(data) {
-  const factors = data.top_shap_factors;
-  if (!factors || factors.length === 0) {
-    $shapList.innerHTML = `<div class="shap-placeholder">No SHAP data returned.</div>`;
+function renderScore(data) {
+  const score = Number(data.health_score ?? 0);
+  const tier = sanitizeTier(data.health_tier);
+  state.currentScore = score;
+  state.currentTier = tier;
+
+  els.scoreValue.textContent = score.toFixed(1);
+  els.scoreValue.classList.toggle("is-critical", tier === "critical");
+  els.scoreLabel.textContent = `health · ${tier} tier`;
+  els.tierChip.hidden = false;
+  els.tierChip.textContent = tier;
+  els.tierChip.className = `tier-chip tier-chip--${tier}`;
+  renderHealthScale(score, tier);
+  renderCrossCheck(data);
+  renderDeflections(data.top_shap_factors || []);
+
+  if (Number(data.anomaly_flag) === 1) {
+    els.anomalyLine.hidden = false;
+  } else {
+    els.anomalyLine.hidden = true;
+  }
+}
+
+function renderHealthScale(score = null, tier = null) {
+  const minX = 24;
+  const maxX = 576;
+  const y = 46;
+  const scaleX = (value) => minX + (Math.max(0, Math.min(100, value)) / 100) * (maxX - minX);
+  const minorTicks = [];
+  for (let value = 0; value <= 100; value += 5) {
+    const major = value % 25 === 0;
+    minorTicks.push(`<line class="${major ? "major" : "minor"}" x1="${scaleX(value)}" y1="${major ? 34 : 38}" x2="${scaleX(value)}" y2="${major ? 58 : 54}" />`);
+  }
+  const labels = [0, 25, 50, 75, 100]
+    .map((value) => `<text x="${scaleX(value)}" y="78">${value}</text>`)
+    .join("");
+  const boundaries = state.health?.tiers
+    ? Object.entries(state.health.tiers)
+        .map(([name, value]) => `
+          <line class="boundary" x1="${scaleX(value)}" y1="22" x2="${scaleX(value)}" y2="62" />
+          <text x="${scaleX(value)}" y="15">${name} ${value}</text>
+        `)
+        .join("")
+    : "";
+  const marker = score === null
+    ? ""
+    : `<polygon class="marker ${tier === "critical" ? "is-critical" : ""}" points="${scaleX(score)},24 ${scaleX(score) - 7},10 ${scaleX(score) + 7},10" />`;
+
+  els.healthScale.innerHTML = `
+    <svg class="health-svg" viewBox="0 0 600 92" role="img" aria-label="Health score scale">
+      <line class="baseline" x1="${minX}" y1="${y}" x2="${maxX}" y2="${y}" />
+      ${minorTicks.join("")}
+      ${boundaries}
+      ${marker}
+      ${labels}
+    </svg>
+  `;
+}
+
+function renderCrossCheck(data) {
+  const agree = Number(data.if_lof_agree) === 1;
+  const hasValue = data.if_lof_agree !== null && data.if_lof_agree !== undefined;
+  els.crossCheck.hidden = false;
+  els.crossCheck.classList.toggle("is-care", hasValue && !agree);
+  const strong = els.crossCheck.querySelector("strong");
+  const detail = els.crossCheck.querySelector("span");
+  if (!hasValue) {
+    strong.textContent = "Cross-check · LOF did not return a comparison for this score";
+  } else if (agree) {
+    strong.textContent = "Cross-check · Isolation Forest and LOF agree on this unit";
+  } else {
+    strong.textContent = "Cross-check · the two detectors disagree on this unit; treat this score with extra care";
+  }
+  detail.textContent = "the detectors agree on 91.3% of a 100,000-reading sample";
+}
+
+function renderDeflections(factors) {
+  if (factors.length === 0) {
+    els.deflectionList.innerHTML = "";
     return;
   }
-
-  const maxAbs = Math.max(...factors.map(f => Math.abs(f.shap_value)), 0.001);
-
-  $shapList.innerHTML = factors.map(f => {
-    const widthPct = (Math.abs(f.shap_value) / maxAbs * 100).toFixed(1);
-    const dirClass = f.direction === "worsens_health" ? "worsens" : "improves";
-    const dirLabel = f.direction === "worsens_health" ? "↑ worsens" : "↓ improves";
+  const maxAbs = Math.max(...factors.map((factor) => Math.abs(Number(factor.shap_value) || 0)), 0.001);
+  els.deflectionList.innerHTML = factors.map((factor) => {
+    const value = Number(factor.shap_value) || 0;
+    const width = Math.max(4, Math.abs(value) / maxAbs * 48);
+    const negative = value < 0;
     return `
-      <div class="shap-item">
-        <div class="shap-feature">
-          <span class="shap-feature-name">${escapeHtml(f.feature)}</span>
-          <span class="shap-direction ${dirClass}">${dirLabel}</span>
+      <div class="deflection__row">
+        <div class="deflection__name">${escapeHtml(glossFeature(factor.feature))}</div>
+        <div class="deflection__track" title="API field: top_shap_factors">
+          <span class="deflection__bar ${negative ? "is-negative" : "is-positive"}" style="width: ${width}%"></span>
         </div>
-        <div class="shap-bar-bg">
-          <div class="shap-bar-fill ${dirClass}" style="width:${widthPct}%"></div>
-        </div>
-        <div class="shap-value">value: ${f.feature_value} · SHAP: ${f.shap_value.toFixed(4)}</div>
+        <div class="deflection__value">${formatSigned(value)}</div>
       </div>
     `;
   }).join("");
 }
 
-// ── Score stats ───────────────────────────────────────────────────────────
-function renderStats(data) {
-  $scoreStats.classList.remove("hidden");
-  document.getElementById("stat-iforest").textContent = data.iforest_score?.toFixed(4) ?? "—";
-  document.getElementById("stat-anomaly").textContent = data.anomaly_flag === 1 ? "⚠ Yes" : "✓ No";
-  document.getElementById("stat-lof").textContent     = data.lof_flag != null
-    ? (data.lof_flag === 1 ? "⚠ Yes" : "✓ No") : "—";
-  document.getElementById("stat-agree").textContent   = data.if_lof_agree != null
-    ? (data.if_lof_agree === 1 ? "✓ Yes" : "✗ No") : "—";
+function addRecent(data) {
+  const unit = data.building_id === null || data.building_id === undefined ? "manual" : `unit ${data.building_id}`;
+  state.recent.unshift({
+    unit,
+    score: Number(data.health_score || 0).toFixed(1),
+    tier: sanitizeTier(data.health_tier),
+  });
+  state.recent = state.recent.slice(0, 5);
+  els.recentPulls.innerHTML = state.recent.map((item) => `
+    <tr>
+      <td>${escapeHtml(item.unit)}</td>
+      <td>${item.score}</td>
+      <td>${item.tier}</td>
+    </tr>
+  `).join("");
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────
-function showError(msg) {
-  $scoreError.textContent = msg;
-  $scoreError.classList.remove("hidden");
+function scheduleWarmup(target, started, logToRun) {
+  const handle = { target, started, active: false, timer: null, logToRun };
+  handle.timer = window.setTimeout(() => startWarmup(handle), 2500);
+  return handle;
 }
+
+function startWarmup(handle) {
+  handle.active = true;
+  const box = document.getElementById(`warmup-${handle.target}`);
+  box.hidden = false;
+  setWarmMarker(handle.target, 60, false);
+  setWarmText(handle.target, "60", "estimated seconds to warm");
+  document.getElementById(`warm-log-${handle.target}`).textContent = "> warm-up estimate counting · this is an estimate, not progress";
+  if (handle.logToRun) {
+    appendLog("> server was asleep · sent the wake call");
+    appendLog("> warm-up estimate counting · this is an estimate, not progress");
+  }
+
+  handle.interval = window.setInterval(() => {
+    const elapsed = Math.floor((performance.now() - handle.started) / 1000);
+    const remaining = 60 - elapsed;
+    if (remaining > 0) {
+      setWarmMarker(handle.target, remaining, false);
+      setWarmText(handle.target, String(remaining), "estimated seconds to warm");
+    } else {
+      setWarmMarker(handle.target, 0, true);
+      setWarmText(handle.target, String(elapsed), "seconds elapsed · still starting");
+      document.getElementById(`warm-log-${handle.target}`).textContent = "> past the usual window · still waiting, counting up honestly";
+      if (handle.logToRun && !handle.overrunLogged) {
+        appendLog("> past the usual window · still waiting, counting up honestly");
+        handle.overrunLogged = true;
+      }
+    }
+  }, 1000);
+  state.warmups[handle.target] = handle;
+}
+
+function finishWarmup(handle) {
+  window.clearTimeout(handle.timer);
+  if (!handle.active) return;
+  window.clearInterval(handle.interval);
+  const measured = ((performance.now() - handle.started) / 1000).toFixed(1);
+  setWarmMarker(handle.target, 0, false);
+  setWarmText(handle.target, "0", "ready");
+  document.getElementById(`warm-log-${handle.target}`).textContent = `> awake · measured wake time ${measured} s`;
+  if (handle.logToRun) {
+    appendLog(`> awake · measured wake time ${measured} s`);
+  }
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  window.setTimeout(() => {
+    document.getElementById(`warmup-${handle.target}`).hidden = true;
+  }, reduce ? 0 : 4000);
+  delete state.warmups[handle.target];
+}
+
+function cancelWarmup(handle) {
+  window.clearTimeout(handle.timer);
+  if (handle.active) {
+    window.clearInterval(handle.interval);
+    document.getElementById(`warmup-${handle.target}`).hidden = true;
+  }
+  delete state.warmups[handle.target];
+}
+
+function setWarmText(target, number, label) {
+  document.getElementById(`warm-number-${target}`).textContent = number;
+  document.getElementById(`warm-label-${target}`).textContent = label;
+}
+
+function setWarmMarker(target, seconds, overrun) {
+  const marker = document.getElementById(`warm-marker-${target}`);
+  const x = 20 + (Math.max(0, Math.min(60, seconds)) / 60) * 260;
+  marker.setAttribute("x1", x);
+  marker.setAttribute("x2", x);
+  marker.classList.toggle("is-overrun", overrun);
+}
+
+function setBusy(isBusy) {
+  els.scoreFleet.disabled = isBusy;
+  els.scoreManual.disabled = isBusy;
+}
+
+function setLog(lines) {
+  els.runLog.textContent = lines.join("\n");
+}
+
+function appendLog(line) {
+  const prefix = els.runLog.textContent ? "\n" : "";
+  els.runLog.textContent += `${prefix}${line}`;
+}
+
 function clearError() {
-  $scoreError.textContent = "";
-  $scoreError.classList.add("hidden");
+  els.scoreError.hidden = true;
+  els.scoreError.textContent = "";
 }
-function resetBtn() {
-  $scoreBtn.disabled = false;
-  $scoreBtn.textContent = "Score Unit";
+
+function showError(message, detail = "") {
+  els.scoreError.hidden = false;
+  els.scoreError.textContent = message;
+  if (detail) {
+    const code = document.createElement("code");
+    code.textContent = detail;
+    els.scoreError.appendChild(code);
+  }
+}
+
+async function readError(response) {
+  try {
+    const data = await response.json();
+    return typeof data.detail === "string" ? data.detail : response.statusText;
+  } catch {
+    return response.statusText;
+  }
+}
+
+function readNumber(id) {
+  const raw = document.getElementById(id).value.trim();
+  if (raw === "") return null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
+function readInteger(id) {
+  const raw = document.getElementById(id).value.trim();
+  if (raw === "") return null;
+  const value = Number.parseInt(raw, 10);
+  return Number.isFinite(value) ? value : null;
 }
 
 function sanitizeTier(value) {
   return ["healthy", "monitor", "warning", "critical"].includes(value) ? value : "critical";
 }
 
+function glossFeature(feature) {
+  return FEATURE_GLOSSES[feature] || String(feature || "").replaceAll("_", " ");
+}
+
+function formatCount(value) {
+  return Number.isFinite(Number(value)) ? String(value) : "--";
+}
+
+function formatSigned(value) {
+  return `${value >= 0 ? "+" : ""}${value.toFixed(4)}`;
+}
+
 function escapeHtml(value) {
   return String(value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }

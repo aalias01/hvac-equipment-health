@@ -1,13 +1,13 @@
 # Deployment only — Render (pip-based, no conda)
 # For local development, use: conda env create -f environment.yml
 
-fastapi>=0.110.0
-uvicorn[standard]>=0.27.0
-pydantic>=2.0.0
-python-multipart>=0.0.9
+fastapi==0.128.8
+uvicorn[standard]==0.39.0
+pydantic==2.13.4
+python-multipart==0.0.20
 # scikit-learn pinned: model artifacts in models/ were trained with this version
-pandas>=2.0.0
-numpy>=2.0.0
+pandas==2.3.3
+numpy==2.0.2
 scikit-learn==1.7.2
-shap>=0.44.0
-joblib>=1.3.0
+shap==0.49.1
+joblib==1.5.3

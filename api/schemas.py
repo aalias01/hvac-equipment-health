@@ -140,6 +140,7 @@ class UnitListResponse(BaseModel):
     n_monitor: int
     n_healthy: int
     total: int
+    snapshot_generated: Optional[str] = None
 
 
 class HealthResponse(BaseModel):
@@ -148,4 +149,6 @@ class HealthResponse(BaseModel):
     scorer_loaded: bool
     feature_count: int
     contamination: float
+    tiers: dict[str, int]
+    fleet_snapshot: bool
     version: str = "0.1.0"

@@ -24,7 +24,6 @@ Usage:
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Optional
 
@@ -47,10 +46,20 @@ THRESHOLDS = {
     "critical": (0,  49),
 }
 
+TIER_CUTOFFS = {
+    "healthy": 90,
+    "monitor": 70,
+    "warning": 50,
+}
+
+
 def score_to_tier(score: float) -> str:
-    if score >= 90: return "healthy"
-    if score >= 70: return "monitor"
-    if score >= 50: return "warning"
+    if score >= TIER_CUTOFFS["healthy"]:
+        return "healthy"
+    if score >= TIER_CUTOFFS["monitor"]:
+        return "monitor"
+    if score >= TIER_CUTOFFS["warning"]:
+        return "warning"
     return "critical"
 
 
@@ -94,6 +103,7 @@ class Scorer:
         )
         self.feature_names: list[str] = []
         self._unit_score_stats: dict[str, dict] = {}  # per-unit score normalization
+        self._shap_explainer = None
         self.is_fitted = False
 
     # LOF scalability caps — kNN queries on millions of rows are intractable,
@@ -139,6 +149,7 @@ class Scorer:
                 }
 
         self.is_fitted = True
+        self._shap_explainer = None
         # predict() would rerun decision_function over all rows — derive the
         # flag from the scores we already have (predict == -1 iff score < 0).
         n_flagged = int((raw_scores < 0).sum())
@@ -271,8 +282,9 @@ class Scorer:
         """
         import shap
         X_scaled = self.scaler.transform(X)
-        explainer = shap.TreeExplainer(self.iforest)
-        shap_values = explainer.shap_values(X_scaled)
+        if self._shap_explainer is None:
+            self._shap_explainer = shap.TreeExplainer(self.iforest)
+        shap_values = self._shap_explainer.shap_values(X_scaled)
         return pd.DataFrame(shap_values, columns=self.feature_names, index=X.index)
 
     def top_shap_factors(
@@ -335,5 +347,6 @@ class Scorer:
         scorer._unit_score_stats = meta.get("unit_score_stats", {})
         if meta["use_lof"] and (path / "lof_model.joblib").exists():
             scorer.lof = joblib.load(path / "lof_model.joblib")
+        scorer._shap_explainer = None
         scorer.is_fitted = True
         return scorer

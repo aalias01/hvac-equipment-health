@@ -18,6 +18,7 @@ Deploy:
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from time import perf_counter
 from typing import List
 
 from fastapi import FastAPI, HTTPException, Query
@@ -26,6 +27,7 @@ from fastapi.responses import JSONResponse
 
 from api.schemas import SensorReading, ScoreResponse, UnitListResponse, HealthResponse
 import api.predictor as predictor
+from src.scorer import TIER_CUTOFFS
 
 
 # ---------------------------------------------------------------------------
@@ -102,6 +104,8 @@ def health():
         scorer_loaded=predictor.is_ready(),
         feature_count=len(scorer.feature_names) if scorer else 0,
         contamination=scorer.contamination if scorer else 0.05,
+        tiers=TIER_CUTOFFS,
+        fleet_snapshot=True,
     )
 
 
@@ -135,10 +139,16 @@ def score_unit(
             status_code=503,
             detail="Scorer not loaded. Run notebook 03 to train and save models.",
         )
+    started = perf_counter()
+    status = 200
     try:
         return predictor.score_single(reading, include_shap=shap)
     except Exception as e:
+        status = 500
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        elapsed_ms = (perf_counter() - started) * 1000
+        print(f"[api] route=/score status={status} n=1 shap={shap} ms={elapsed_ms:.1f}")
 
 
 @app.post("/score/batch", response_model=List[ScoreResponse])
@@ -151,18 +161,27 @@ def score_batch(
         raise HTTPException(status_code=503, detail="Scorer not loaded.")
     if len(readings) > 500:
         raise HTTPException(status_code=400, detail="Batch limited to 500 readings per request.")
-    results = []
-    for r in readings:
-        try:
-            results.append(predictor.score_single(r, include_shap=shap))
-        except Exception as e:
-            results.append(
-                ScoreResponse(
-                    building_id=r.building_id,
-                    health_score=0.0,
-                    health_tier="critical",
-                    anomaly_flag=1,
-                    iforest_score=0.0,
+    started = perf_counter()
+    status = 200
+    try:
+        results = []
+        for r in readings:
+            try:
+                results.append(predictor.score_single(r, include_shap=shap))
+            except Exception:
+                results.append(
+                    ScoreResponse(
+                        building_id=r.building_id,
+                        health_score=0.0,
+                        health_tier="critical",
+                        anomaly_flag=1,
+                        iforest_score=0.0,
+                    )
                 )
-            )
-    return results
+        return results
+    except Exception:
+        status = 500
+        raise
+    finally:
+        elapsed_ms = (perf_counter() - started) * 1000
+        print(f"[api] route=/score/batch status={status} n={len(readings)} shap={shap} ms={elapsed_ms:.1f}")

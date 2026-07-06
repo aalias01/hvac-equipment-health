@@ -12,9 +12,7 @@ import json
 from pathlib import Path
 from typing import Optional
 
-import pandas as pd
-
-from src.scorer import Scorer, score_to_tier
+from src.scorer import Scorer
 from api.schemas import SensorReading, ScoreResponse, SHAPFactor, UnitListResponse
 
 MODEL_DIR = Path("models")
@@ -100,6 +98,7 @@ def get_all_units() -> UnitListResponse:
     else:
         units = []
 
+    meta = _load_unit_baseline_meta()
     tiers = [u.get("health_tier", "critical") for u in units]
     return UnitListResponse(
         units=sorted(units, key=lambda u: u.get("health_score", 0)),
@@ -108,7 +107,19 @@ def get_all_units() -> UnitListResponse:
         n_monitor=tiers.count("monitor"),
         n_healthy=tiers.count("healthy"),
         total=len(units),
+        snapshot_generated=meta.get("generated"),
     )
+
+
+def _load_unit_baseline_meta() -> dict:
+    meta_path = MODEL_DIR / "unit_baselines_meta.json"
+    if not meta_path.exists():
+        return {}
+    try:
+        return json.loads(meta_path.read_text())
+    except json.JSONDecodeError as exc:
+        print(f"[predictor] Could not read unit baseline metadata: {exc}")
+        return {}
 
 
 def _reading_to_features(reading: SensorReading) -> dict:

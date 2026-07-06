@@ -1,204 +1,132 @@
 # HVAC Equipment Health Scoring
 
-> **Predicting HVAC equipment degradation from physics-derived features: COP, temperature deltas, and load ratio. Domain knowledge built from 3 years of product development at Rheem Manufacturing.**
+Scores the health of HVAC units (0 to 100) from operational sensor data and explains each score with SHAP. Features are physics-derived: COP, temperature deltas, load ratio. I spent 3 years in product development at Rheem Manufacturing working on these systems, and the feature set comes from that domain knowledge rather than generic time-series statistics.
 
 [![Python](https://img.shields.io/badge/Python-3.11-blue)](https://www.python.org/)
 [![scikit-learn](https://img.shields.io/badge/scikit--learn-1.7-orange)](https://scikit-learn.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110-teal)](https://fastapi.tiangolo.com/)
+[![CI](https://github.com/aalias01/hvac-equipment-health/actions/workflows/ci.yml/badge.svg)](https://github.com/aalias01/hvac-equipment-health/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-HVAC systems fail in predictable ways — compressor fouling, refrigerant charge loss, heat exchanger degradation — but most operators react after failure. This project scores the health of HVAC units from operational sensor data (temperatures, pressures, flow rates, power draw), detects anomalies before failure, and surfaces SHAP-explained insights through a live dashboard.
+**[Live demo](https://hvac.alvinalias.com)** | **[API docs](https://hvac-health-api.onrender.com/docs)**
 
-**Built by an engineer who spent 3 years at Rheem Manufacturing designing these systems.**
+## Why
 
-**Live demo:** https://hvac.alvinalias.com  
-**API docs:** https://hvac-health-api.onrender.com/docs
+HVAC systems fail in predictable ways: compressor fouling, refrigerant charge loss, heat exchanger degradation. Most operators still react after failure. This project detects the degradation early from hourly meter data, without needing labeled failures.
 
----
+## The features
 
-## What Makes This Different
+| Feature | Formula | What it signals |
+|---------|---------|-----------------|
+| COP | Cooling output / power input | The best single efficiency indicator in refrigeration; declining COP signals compressor wear before any alarm triggers |
+| Delta-T supply | T_supply_air - T_return_air | Heat exchange effectiveness; narrows as the coil fouls |
+| Delta-T refrigerant | T_condenser - T_evaporator | Refrigerant circuit efficiency; widens as charge depletes |
+| Load ratio | Actual load / rated capacity | High load ratio plus declining COP is the imminent-failure zone |
+| Runtime fraction | Hours running / hours in period | High runtime plus poor COP means degradation is accumulating |
+| Rolling COP deviation | COP vs 30-day rolling mean | Catches slow drift that threshold alarms miss |
 
-Most DS candidates train a model on sensor data and call it predictive maintenance. This project starts from physics:
-
-| Feature | Formula | Why it matters |
-|---------|---------|---------------|
-| **COP** | Cooling output / power input | The single best efficiency indicator in refrigeration — declining COP signals compressor wear before any alarm triggers |
-| **ΔT supply** | T_supply_air − T_return_air | Measures heat exchange effectiveness; narrows as coil fouls |
-| **ΔT refrigerant** | T_condenser − T_evaporator | Refrigerant circuit efficiency; widens as charge depletes |
-| **Load ratio** | Actual load / rated capacity | High load ratio + declining COP = imminent failure zone |
-| **Runtime fraction** | Hours running / hours in period | High runtime + poor COP = degradation accumulating |
-| **Rolling COP deviation** | COP vs. 30-day rolling mean | Trend-based signal catches slow drift that threshold alarms miss |
-
-These are not generic time-series features. They come from refrigeration thermodynamics and 3 years of product development at Rheem Manufacturing.
-
----
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  DATA  (ASHRAE Great Energy Predictor III — 1,000+ buildings)│
-│  Hourly sensor readings: temps, pressures, power, flow rates │
-└───────────────────────┬─────────────────────────────────────┘
-                        │
-┌───────────────────────▼─────────────────────────────────────┐
-│  FEATURE ENGINEERING  (src/features.py)                      │
-│  COP · ΔT supply/refrigerant · Load ratio · Runtime frac.   │
-│  Rolling 24-hr + 7-day stats · Time-of-day/season features  │
-└───────────────────────┬─────────────────────────────────────┘
-                        │
-┌───────────────────────▼─────────────────────────────────────┐
-│  ANOMALY DETECTION  (src/scorer.py)                          │
-│  Isolation Forest (primary) · LOF (comparison)              │
-│  Contamination = 0.05 (tuned against physical validation)   │
-└───────────────────────┬─────────────────────────────────────┘
-                        │
-┌───────────────────────▼─────────────────────────────────────┐
-│  HEALTH SCORE  0–100 gauge (src/scorer.py)                   │
-│  Anomaly score → inverted, scaled, per-unit normalized       │
-│  SHAP explains which sensor drove each unit's score          │
-└───────────────────────┬─────────────────────────────────────┘
-                        │
-┌───────────────────────▼─────────────────────────────────────┐
-│  DEPLOYMENT                                                  │
-│  FastAPI (Render) ◄──► Vanilla JS dashboard (Vercel)        │
-│  Unit selector · Health gauge · Sensor trends · Alert table │
-└─────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Tech Stack
-
-| Layer | Tool | Notes |
-|-------|------|-------|
-| Feature engineering | Pandas, NumPy | COP, ΔT, load ratio, rolling stats |
-| Anomaly detection | Isolation Forest (sklearn) | Primary model — no labels needed |
-| Comparison | Local Outlier Factor (sklearn) | Density-based alternative |
-| Interpretability | SHAP TreeExplainer | Per-unit sensor importance |
-| API | FastAPI on Render | POST /score → health score + SHAP |
-| Frontend | Vanilla HTML/CSS/JS (Vercel) | Health gauge, trend charts, alert table |
-| Environment | conda (`environment.yml`) | |
-
----
-
-## Key Results
+## Results
 
 | Metric | Value | Notes |
 |--------|-------|-------|
 | Readings scored | 2,876,400 | Hourly chilled-water readings (4.18M raw, filtered for rolling-history coverage) |
-| Units analyzed | 497 | Buildings with ≥90 days of meter coverage |
-| Anomaly rate (contamination=0.05) | 5.0% (143,820 readings) | Sensitivity-checked at 0.02 / 0.05 / 0.10 — all 0.02-flagged points remain flagged at 0.05 |
-| Unit health scores | 35.0 – 74.0 (median 58.6) | Per-unit mean of the 0–100 reading-level score; 78 units land in the critical tier |
-| Top SHAP feature | `rolling_cop_std_24h` | 24-hour COP volatility — intermittent-fault signature — edges out COP level itself |
-| LOF vs IF agreement | 91.3% | On a 100k-reading comparison sample |
+| Units analyzed | 497 | Buildings with at least 90 days of meter coverage |
+| Anomaly rate (contamination=0.05) | 5.0% (143,820 readings) | Sensitivity-checked at 0.02 / 0.05 / 0.10; every point flagged at 0.02 stays flagged at 0.05 |
+| Unit health scores | 35.0 to 74.0, median 58.6 | Per-unit mean of the reading-level score; 78 units land in the critical tier |
+| Top SHAP feature | `rolling_cop_std_24h` | 24-hour COP volatility (an intermittent-fault signature) outranks COP level itself |
+| LOF vs Isolation Forest agreement | 91.3% | On a 100k-reading comparison sample |
 
 ![Health score distribution](figures/03_health_score_distribution.png)
 
 ![SHAP summary](figures/03_shap_summary.png)
 
----
+See the [model card](models/MODEL_CARD.md) for score meaning, detector limits, and data provenance.
+
+## How it works
+
+```
+ASHRAE meter data (hourly: temps, power, flow)
+        |
+feature engineering (src/features.py)
+  COP, delta-T, load ratio, runtime fraction, rolling 24h/7d stats
+        |
+anomaly detection (src/scorer.py)
+  Isolation Forest (primary), LOF (comparison), contamination 0.05
+        |
+health score 0-100, per-unit normalized
+  SHAP explains which sensor drove each unit's score
+        |
+FastAPI (Render)  <->  vanilla JS operations wall (Vercel)
+  scored fleet snapshot, one score reading, detector cross-check
+```
+
+## Tech stack
+
+Python 3.11, Pandas, NumPy, scikit-learn 1.7 (Isolation Forest, LOF), SHAP TreeExplainer, FastAPI on Render, vanilla HTML/CSS/JS operations wall on Vercel. Environments: `environment.yml` (conda, local) and `requirements.txt` (pip, Render).
 
 ## Dataset
 
-**ASHRAE Great Energy Predictor III**  
-Source: [Kaggle competition](https://www.kaggle.com/c/ashrae-energy-prediction)  
-- 1,000+ buildings, hourly meter readings + weather data (2016–2017)
-- Covers chilled water, electricity, hot water, steam meters
-- Download and place at `data/raw/` (see setup instructions below)
+**ASHRAE Great Energy Predictor III** ([Kaggle competition](https://www.kaggle.com/c/ashrae-energy-prediction)): 1,000+ buildings, hourly meter readings plus weather, 2016 to 2017, covering chilled water, electricity, hot water, and steam meters. Used under the competition's data rules.
 
-*Alternative:* UCI HVAC Fault Detection dataset (smaller, faster iteration — good for initial dev, swap to ASHRAE for final version).
-
----
-
-## Setup
+## Run it locally
 
 ```bash
-# 1. Clone
 git clone https://github.com/aalias01/hvac-equipment-health
 cd hvac-equipment-health
-
-# 2. Create environment
 conda env create -f environment.yml
 conda activate hvac-health
 
-# 3. Download data
-# Kaggle CLI (requires kaggle.json in ~/.kaggle/):
+# data (requires kaggle.json in ~/.kaggle/)
 kaggle competitions download -c ashrae-energy-prediction -p data/raw/
-# Or download manually from https://www.kaggle.com/c/ashrae-energy-prediction
+```
 
-# 4. Run notebooks in order:
-#    notebooks/01_eda.ipynb
-#    notebooks/02_feature_engineering.ipynb
-#    notebooks/03_anomaly_detection.ipynb
+Run the notebooks in order: `01_eda.ipynb`, `02_feature_engineering.ipynb`, `03_anomaly_detection.ipynb`. Notebook 03 writes the model artifacts the API needs:
 
-# 5. Start the API locally
+```
+models/isolation_forest.joblib
+models/isolation_forest_scaler.joblib
+models/lof_model.joblib
+models/scorer_meta.json
+models/unit_baselines.joblib
+```
+
+Then start the API and open the frontend:
+
+```bash
 uvicorn api.main:app --reload
-# Visit http://localhost:8000/docs
-
-# 6. Open the frontend
-# Open frontend/index.html
-# It points at the deployed API by default; for a local API run:
-# localStorage.setItem("HVAC_API_BASE", "http://localhost:8000")
+# docs at http://localhost:8000/docs
 ```
 
-The API starts in degraded mode until model artifacts exist in `models/`. Run the notebooks through `03_anomaly_detection.ipynb` to create:
+Open `frontend/index.html`. It points at the deployed API by default; for a local API, run `localStorage.setItem("HVAC_API_BASE", "http://localhost:8000")` in the browser console. The fleet board is a scored snapshot from `models/unit_baselines.joblib`, not live telemetry. The API starts in degraded mode until the model artifacts exist.
 
-- `models/isolation_forest.joblib`
-- `models/isolation_forest_scaler.joblib`
-- `models/lof_model.joblib`
-- `models/scorer_meta.json`
-- `models/unit_baselines.joblib`
+Run tests and lint:
 
----
-
-## Repository Structure
-
-```
-hvac-equipment-health/
-├── README.md
-├── .gitignore
-├── environment.yml          ← conda (local dev)
-├── requirements.txt         ← pip (Render deploy)
-├── runtime.txt
-├── render.yaml
-│
-├── data/
-│   ├── raw/                 ← GITIGNORED — place ASHRAE CSVs here
-│   └── processed/           ← GITIGNORED — generated by notebooks
-│
-├── notebooks/
-│   ├── 01_eda.ipynb                  ← Sensor distributions, correlations, time-series
-│   ├── 02_feature_engineering.ipynb  ← COP, ΔT, load ratio, rolling stats
-│   └── 03_anomaly_detection.ipynb    ← Isolation Forest, LOF, health score, SHAP
-│
-├── src/
-│   ├── features.py    ← Domain feature engineering (COP, ΔT, rolling stats)
-│   └── scorer.py      ← Health score computation + anomaly flagging
-│
-├── api/
-│   ├── main.py        ← FastAPI: POST /score, GET /health, GET /units
-│   ├── schemas.py     ← Pydantic request/response models
-│   └── predictor.py   ← Model loading + inference + SHAP
-│
-├── frontend/
-│   ├── index.html     ← Dashboard: unit selector, health gauge, trends, alerts
-│   ├── style.css      ← Dark theme (consistent with portfolio)
-│   └── app.js         ← API calls, gauge render, chart render, alert table
-│
-├── models/            ← API runtime artifacts committed (see .gitignore)
-│
-└── figures/           ← Generated plots committed here
+```bash
+python -m pip install -r requirements-dev.txt
+ruff check .
+pytest -q
 ```
 
----
+## Limitations
+
+- ASHRAE meters are building-level, so "unit" here means a building's chilled-water system, not an individual compressor. The physics features still apply, but a real deployment would use equipment-level telemetry.
+- Anomaly detection is unsupervised; there are no ground-truth failure labels in this dataset to compute precision or recall against.
+- The API runs on Render's free tier; the first request after idle can take around a minute to cold-start.
 
 ## Deployment
 
-**Backend (Render):** Push repo → Render → Blueprint → connect repo (reads `render.yaml`).  
-**Frontend (Vercel):** Connect repo → root directory `frontend/` → deploy.  
-After both deploy: update `API_BASE` in `app.js` and CORS `allow_origins` in `api/main.py`.
+Backend: push to GitHub, then Render > Blueprint > connect the repo (`render.yaml` does the rest). Frontend: connect the repo on Vercel with root directory `frontend/`. After both deploy, update `API_BASE` in `app.js` and `allow_origins` in `api/main.py`.
 
----
+## Project structure
 
-*Built by [Alvin Alias](https://github.com/aalias01) · MS Data Science, University of Washington · 3 years HVAC product development at Rheem Manufacturing*
+```
+├── notebooks/       # 01 EDA, 02 features, 03 anomaly detection + scoring
+├── src/             # features.py, scorer.py
+├── api/             # FastAPI: main.py, schemas.py, predictor.py
+├── frontend/        # operations wall (Vercel)
+├── models/          # API runtime artifacts (committed)
+├── figures/         # generated plots
+└── data/            # gitignored; download from Kaggle
+```
+
+Built by [Alvin Alias](https://github.com/aalias01), MS Data Science, University of Washington. 3 years HVAC product development at Rheem Manufacturing.

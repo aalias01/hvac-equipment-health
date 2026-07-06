@@ -3,193 +3,267 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>HVAC Equipment Health Dashboard</title>
-  <link rel="stylesheet" href="style.css" />
+  <title>Unit health · HVAC fleet scoring</title>
+  <script>
+    (function () {
+      var cookie = document.cookie.split("; ").find(function (part) {
+        return part.indexOf("mode=") === 0;
+      });
+      var stored = cookie ? cookie.split("=")[1] : localStorage.getItem("mode");
+      var system = window.matchMedia("(prefers-color-scheme: dark)").matches ? "night" : "day";
+      document.documentElement.dataset.theme = stored === "dark" ? "night" : stored === "light" ? "day" : system;
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=B612:wght@400;700&family=B612+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=aa-2026-04b" />
 </head>
 <body>
-
-  <!-- ── Header ── -->
-  <header class="header">
-    <div class="header-inner">
-      <div class="header-title">
-        <span class="header-icon">⚙️</span>
-        <div>
-          <h1>HVAC Equipment Health</h1>
-          <p class="header-sub">Real-time anomaly detection · Isolation Forest · SHAP explanations</p>
-        </div>
+  <header class="nameplate">
+    <div class="nameplate__main">
+      <div>
+        <h1>Unit health</h1>
+        <p>Scores HVAC units 0 to 100 from meter data. Features from 3 years at Rheem. Built by Alvin Alias.</p>
       </div>
-      <div class="header-status" id="api-status">
-        <span class="status-dot" id="status-dot"></span>
-        <span id="status-text">Connecting…</span>
+      <div class="nameplate__number">
+        <strong>497 units / 2.88M readings</strong>
+        <span>Isolation Forest with an LOF cross-check · no failure labels</span>
+      </div>
+      <nav class="nameplate__links" aria-label="Project links">
+        <a href="https://github.com/aalias01/hvac-equipment-health">GitHub</a>
+        <a href="https://hvac-health-api.onrender.com/docs" id="api-docs-link">API docs</a>
+        <a href="https://alvinalias.com/notes/posts/health-without-labels.html">Write-up</a>
+      </nav>
+      <div class="nameplate__meta">
+        <span class="series">AA-2026-04</span>
+        <button class="mode-toggle" id="mode-toggle" type="button" aria-label="Switch to dark mode" aria-pressed="false">
+          <span class="mode-toggle__icons" aria-hidden="true">
+            <span>☼</span>
+            <span>☾</span>
+          </span>
+          <span class="mode-toggle__track" aria-hidden="true"><span></span></span>
+        </button>
+      </div>
+    </div>
+    <div class="nameplate__status">
+      <span id="status-text">model waking, first run may take up to a minute</span>
+      <div class="warmup warmup--mini" id="warmup-mini" hidden>
+        <svg viewBox="0 0 300 46" aria-hidden="true">
+          <line x1="20" y1="20" x2="280" y2="20" class="scale-line" />
+          <g class="minor-ticks">
+            <line x1="20" y1="15" x2="20" y2="25" />
+            <line x1="42" y1="17" x2="42" y2="23" />
+            <line x1="63" y1="17" x2="63" y2="23" />
+            <line x1="85" y1="15" x2="85" y2="25" />
+            <line x1="107" y1="17" x2="107" y2="23" />
+            <line x1="128" y1="17" x2="128" y2="23" />
+            <line x1="150" y1="15" x2="150" y2="25" />
+            <line x1="172" y1="17" x2="172" y2="23" />
+            <line x1="193" y1="17" x2="193" y2="23" />
+            <line x1="215" y1="15" x2="215" y2="25" />
+            <line x1="237" y1="17" x2="237" y2="23" />
+            <line x1="258" y1="17" x2="258" y2="23" />
+            <line x1="280" y1="15" x2="280" y2="25" />
+          </g>
+          <g class="major-labels">
+            <text x="20" y="40">0</text>
+            <text x="85" y="40">15</text>
+            <text x="150" y="40">30</text>
+            <text x="215" y="40">45</text>
+            <text x="280" y="40">60</text>
+          </g>
+          <line id="warm-marker-mini" x1="280" y1="10" x2="280" y2="30" class="warm-marker" />
+        </svg>
+        <div class="warmup__readout">
+          <strong id="warm-number-mini">60</strong>
+          <span id="warm-label-mini">estimated seconds to warm</span>
+        </div>
+        <p id="warm-log-mini">&gt; warm-up estimate counting · this is an estimate, not progress</p>
       </div>
     </div>
   </header>
 
-  <!-- ── Fleet Overview Banner ── -->
-  <section class="fleet-banner" id="fleet-banner">
-    <div class="fleet-card critical">
-      <span class="fleet-count" id="count-critical">—</span>
-      <span class="fleet-label">Critical</span>
-    </div>
-    <div class="fleet-card warning">
-      <span class="fleet-count" id="count-warning">—</span>
-      <span class="fleet-label">Warning</span>
-    </div>
-    <div class="fleet-card monitor">
-      <span class="fleet-count" id="count-monitor">—</span>
-      <span class="fleet-label">Monitor</span>
-    </div>
-    <div class="fleet-card healthy">
-      <span class="fleet-count" id="count-healthy">—</span>
-      <span class="fleet-label">Healthy</span>
-    </div>
-    <div class="fleet-card total">
-      <span class="fleet-count" id="count-total">—</span>
-      <span class="fleet-label">Total Units</span>
-    </div>
-  </section>
-
-  <!-- ── Main Layout ── -->
-  <main class="main-layout">
-
-    <!-- ── Left: Score Panel ── -->
-    <section class="score-panel card">
-      <h2 class="panel-title">Score a Unit</h2>
-
-      <!-- Unit selector (populated from /units) -->
-      <div class="form-group">
-        <label for="unit-select">Select unit</label>
-        <select id="unit-select">
-          <option value="">— pick a unit or enter manual readings —</option>
-        </select>
+  <main>
+    <section class="fleet" aria-labelledby="fleet-title">
+      <div class="section-heading">
+        <h2 id="fleet-title">The fleet · 497 units, scored from the meter study</h2>
+        <button class="icon-button" id="refresh-fleet" type="button" aria-label="Refresh fleet" title="Refresh fleet">↻</button>
       </div>
-
-      <!-- Manual sensor input (collapsed by default) -->
-      <details class="manual-input" id="manual-input">
-        <summary>Enter sensor readings manually</summary>
-        <div class="sensor-grid">
-          <div class="form-group">
-            <label for="cop">COP (0–8)</label>
-            <input type="number" id="cop" step="0.01" min="0" max="8" placeholder="3.20" />
-          </div>
-          <div class="form-group">
-            <label for="delta-t-supply">ΔT Supply (°C)</label>
-            <input type="number" id="delta-t-supply" step="0.1" min="0" placeholder="9.5" />
-          </div>
-          <div class="form-group">
-            <label for="delta-t-refrig">ΔT Refrigerant (°C)</label>
-            <input type="number" id="delta-t-refrig" step="0.1" min="0" placeholder="18.0" />
-          </div>
-          <div class="form-group">
-            <label for="load-ratio">Load Ratio (0–1.5)</label>
-            <input type="number" id="load-ratio" step="0.01" min="0" max="1.5" placeholder="0.72" />
-          </div>
-          <div class="form-group">
-            <label for="air-temp">Outdoor Temp (°C)</label>
-            <input type="number" id="air-temp" step="0.1" placeholder="28.5" />
-          </div>
-          <div class="form-group">
-            <label for="hour">Hour of Day</label>
-            <input type="number" id="hour" step="1" min="0" max="23" placeholder="14" />
-          </div>
-        </div>
-      </details>
-
-      <button class="btn-primary" id="score-btn">Score Unit</button>
-      <div class="error-msg hidden" id="score-error"></div>
-
-      <!-- ── Health Gauge ── -->
-      <div class="gauge-container" id="gauge-container">
-        <svg class="gauge-svg" viewBox="0 0 200 120" xmlns="http://www.w3.org/2000/svg">
-          <!-- Background arc -->
-          <path id="gauge-bg"
-            d="M 20 110 A 80 80 0 0 1 180 110"
-            fill="none" stroke="#2a2d3e" stroke-width="18" stroke-linecap="round" />
-          <!-- Colored arc (filled by JS) -->
-          <path id="gauge-fill"
-            d="M 20 110 A 80 80 0 0 1 180 110"
-            fill="none" stroke="#3ecf8e" stroke-width="18" stroke-linecap="round"
-            stroke-dasharray="0 251.3"
-            style="transition: stroke-dasharray 0.8s ease, stroke 0.4s ease;" />
-          <!-- Score text -->
-          <text id="gauge-score" x="100" y="98" text-anchor="middle"
-            font-size="34" font-weight="700" fill="#e2e8f0">—</text>
-          <text id="gauge-label" x="100" y="116" text-anchor="middle"
-            font-size="11" fill="#94a3b8" letter-spacing="1.5">HEALTH SCORE</text>
-        </svg>
-
-        <!-- Tier badge -->
-        <div class="tier-badge hidden" id="tier-badge">—</div>
-        <!-- Anomaly flag -->
-        <div class="anomaly-flag hidden" id="anomaly-flag">⚠ ANOMALY DETECTED</div>
+      <p class="fleet__message" id="fleet-message">pulling the fleet</p>
+      <div class="fleet__strip" id="fleet-strip">
+        <article class="fleet-cell fleet-cell--critical">
+          <strong id="count-critical" title="/units n_critical">--</strong>
+          <span>critical</span>
+          <i class="hatch hatch--critical" aria-hidden="true"></i>
+        </article>
+        <article class="fleet-cell fleet-cell--warning">
+          <strong id="count-warning" title="/units n_warning">--</strong>
+          <span>warning</span>
+          <i class="hatch hatch--warning" aria-hidden="true"></i>
+        </article>
+        <article class="fleet-cell fleet-cell--monitor">
+          <strong id="count-monitor" title="/units n_monitor">--</strong>
+          <span>monitor</span>
+          <i class="hatch hatch--monitor" aria-hidden="true"></i>
+        </article>
+        <article class="fleet-cell fleet-cell--healthy">
+          <strong id="count-healthy" title="/units n_healthy">--</strong>
+          <span>healthy</span>
+          <i class="hatch hatch--healthy" aria-hidden="true"></i>
+        </article>
+        <article class="fleet-cell fleet-cell--total">
+          <strong id="count-total" title="/units total">--</strong>
+          <span>total</span>
+          <i class="hatch hatch--total" aria-hidden="true"></i>
+        </article>
       </div>
     </section>
 
-    <!-- ── Center: SHAP Panel ── -->
-    <section class="shap-panel card">
-      <h2 class="panel-title">Score Explanation <span class="panel-note">(SHAP)</span></h2>
-      <p class="shap-intro">Which sensors are driving this unit's health score?</p>
-      <div class="shap-list" id="shap-list">
-        <div class="shap-placeholder">Score a unit to see explanations.</div>
+    <section class="faceplate" aria-label="Unit health scorer">
+      <div class="controls">
+        <button class="primary-run" id="score-fleet" type="button">Score a fleet unit</button>
+        <p class="helper">Picks a real unit from the scored fleet and runs it against its own baseline, then prints whether both detectors agree about it.</p>
+
+        <details class="manual" id="manual-panel">
+          <summary>Enter readings yourself</summary>
+          <div class="manual__grid">
+            <label>
+              <span>COP</span>
+              <small>cooling out per watt in</small>
+              <input id="cop" type="number" step="0.01" min="0" max="10" inputmode="decimal" />
+            </label>
+            <label>
+              <span>Supply delta-T (C)</span>
+              <small>air temperature drop across the coil</small>
+              <input id="delta-t-supply" type="number" step="0.1" min="0" inputmode="decimal" />
+            </label>
+            <label>
+              <span>Refrigerant delta-T (C)</span>
+              <small>condenser minus evaporator</small>
+              <input id="delta-t-refrigerant" type="number" step="0.1" min="0" inputmode="decimal" />
+            </label>
+            <label>
+              <span>Load ratio</span>
+              <small>load vs rated capacity</small>
+              <input id="load-ratio" type="number" step="0.01" min="0" max="2" inputmode="decimal" />
+            </label>
+            <label>
+              <span>Outdoor temp (C)</span>
+              <input id="air-temperature" type="number" step="0.1" inputmode="decimal" />
+            </label>
+            <label>
+              <span>Hour of day</span>
+              <input id="hour-of-day" type="number" step="1" min="0" max="23" inputmode="numeric" />
+            </label>
+          </div>
+          <button class="secondary-run" id="score-manual" type="button">Score readings</button>
+        </details>
+
+        <div class="error-block" id="score-error" hidden></div>
+        <pre class="run-log" id="run-log" aria-live="polite"></pre>
+
+        <section class="recent" aria-labelledby="recent-title">
+          <h2 id="recent-title">Recent pulls</h2>
+          <table>
+            <tbody id="recent-pulls"></tbody>
+          </table>
+        </section>
       </div>
 
-      <!-- Score breakdown stats -->
-      <div class="score-stats hidden" id="score-stats">
-        <div class="stat-row">
-          <span class="stat-label">IF Score (raw)</span>
-          <span class="stat-value" id="stat-iforest">—</span>
+      <div class="reading">
+        <div class="reading__top">
+          <strong id="score-value" title="API field: health_score">--</strong>
+          <span id="score-label">health</span>
+          <span class="tier-chip tier-chip--critical" id="tier-chip" hidden>critical</span>
         </div>
-        <div class="stat-row">
-          <span class="stat-label">Anomaly Flag</span>
-          <span class="stat-value" id="stat-anomaly">—</span>
+
+        <div class="scale-wrap" id="health-scale" aria-label="Health scale from 0 to 100"></div>
+
+        <div class="warmup warmup--main" id="warmup-main" hidden>
+          <svg viewBox="0 0 300 46" aria-hidden="true">
+            <line x1="20" y1="20" x2="280" y2="20" class="scale-line" />
+            <g class="minor-ticks">
+              <line x1="20" y1="15" x2="20" y2="25" />
+              <line x1="42" y1="17" x2="42" y2="23" />
+              <line x1="63" y1="17" x2="63" y2="23" />
+              <line x1="85" y1="15" x2="85" y2="25" />
+              <line x1="107" y1="17" x2="107" y2="23" />
+              <line x1="128" y1="17" x2="128" y2="23" />
+              <line x1="150" y1="15" x2="150" y2="25" />
+              <line x1="172" y1="17" x2="172" y2="23" />
+              <line x1="193" y1="17" x2="193" y2="23" />
+              <line x1="215" y1="15" x2="215" y2="25" />
+              <line x1="237" y1="17" x2="237" y2="23" />
+              <line x1="258" y1="17" x2="258" y2="23" />
+              <line x1="280" y1="15" x2="280" y2="25" />
+            </g>
+            <g class="major-labels">
+              <text x="20" y="40">0</text>
+              <text x="85" y="40">15</text>
+              <text x="150" y="40">30</text>
+              <text x="215" y="40">45</text>
+              <text x="280" y="40">60</text>
+            </g>
+            <line id="warm-marker-main" x1="280" y1="10" x2="280" y2="30" class="warm-marker" />
+          </svg>
+          <div class="warmup__readout">
+            <strong id="warm-number-main">60</strong>
+            <span id="warm-label-main">estimated seconds to warm</span>
+          </div>
+          <p id="warm-log-main">&gt; warm-up estimate counting · this is an estimate, not progress</p>
+          <p>This runs on a free tier that sleeps between visitors. First start takes 30 to 60 seconds; runs after that are quick.</p>
         </div>
-        <div class="stat-row">
-          <span class="stat-label">LOF Flag</span>
-          <span class="stat-value" id="stat-lof">—</span>
+
+        <div class="cross-check" id="cross-check" hidden>
+          <strong>Cross-check · Isolation Forest and LOF agree on this unit</strong>
+          <span>the detectors agree on 91.3% of a 100,000-reading sample</span>
         </div>
-        <div class="stat-row">
-          <span class="stat-label">IF + LOF Agree</span>
-          <span class="stat-value" id="stat-agree">—</span>
-        </div>
+        <p class="anomaly-line" id="anomaly-line" hidden>flagged as anomalous by the primary detector</p>
+
+        <section class="deflection" aria-labelledby="deflection-title">
+          <h2 id="deflection-title">What moved this score</h2>
+          <div class="deflection__list" id="deflection-list"></div>
+        </section>
       </div>
     </section>
 
-    <!-- ── Right: Alert Table ── -->
-    <section class="alert-panel card">
-      <h2 class="panel-title">
-        Fleet Triage
-        <button class="btn-ghost" id="refresh-btn" title="Refresh unit list">↻</button>
-      </h2>
-      <p class="alert-intro">All units · sorted worst-first</p>
-      <div class="table-scroll">
-        <table class="alert-table" id="alert-table">
-          <thead>
-            <tr>
-              <th>Unit</th>
-              <th>Score</th>
-              <th>Tier</th>
-              <th>⚠</th>
-            </tr>
-          </thead>
-          <tbody id="alert-tbody">
-            <tr><td colspan="4" class="table-placeholder">Loading units…</td></tr>
+    <section class="folds" aria-label="Project record">
+      <details>
+        <summary>Calibration record · sensitivity checks and detector agreement</summary>
+        <table>
+          <tbody>
+            <tr><td>2,876,400 hourly readings scored · 4.18M raw, filtered for rolling-history coverage</td></tr>
+            <tr><td>497 units with at least 90 days of coverage</td></tr>
+            <tr><td>Anomaly rate 5.0% at contamination 0.05 · every point flagged at 0.02 stays flagged at 0.05</td></tr>
+            <tr><td>Unit scores 35.0 to 74.0, median 58.6 · 78 units in the critical tier</td></tr>
+            <tr><td>LOF vs Isolation Forest agreement 91.3% on a 100k sample</td></tr>
+            <tr><td>Top factor: 24-hour COP volatility, an intermittent-fault signature, outranking COP level itself</td></tr>
           </tbody>
         </table>
-      </div>
+      </details>
+      <details>
+        <summary>How it works · COP, delta-T, load ratio, from the Rheem years</summary>
+        <p>the features are the physics I watched at Rheem: COP as the single best efficiency signal, supply delta-T narrowing as coils foul, refrigerant delta-T widening as charge depletes, load ratio because high load plus falling COP is the danger zone; Isolation Forest scores, LOF cross-checks, no labels required.</p>
+      </details>
+      <details>
+        <summary>Notes · no failure labels exist; this reads anomaly structure</summary>
+        <ol>
+          <li>This runs on a free tier that sleeps between visitors. First start takes 30 to 60 seconds; runs after that are quick.</li>
+          <li>No failure labels exist in this data. The score reads anomaly structure, and the LOF cross-check is the only independent witness, which is why it prints with every run.</li>
+          <li>The fleet board is a scored snapshot of the study data, not a live feed; every unit on it is real and every score was computed by the model.</li>
+          <li>Unit scoring uses representative default readings when a fleet unit is pulled; enter your own readings for a fully manual score.</li>
+        </ol>
+      </details>
     </section>
-
   </main>
 
-  <!-- ── Footer ── -->
-  <footer class="footer">
-    <p>
-      Built by <a href="https://github.com/aalias01" target="_blank">Alvin Alias</a> ·
-      HVAC domain knowledge from 3 years at Rheem Manufacturing ·
-      <a href="https://github.com/aalias01/hvac-equipment-health" target="_blank">GitHub</a> ·
-      <a href="https://hvac-health-api.onrender.com/docs" target="_blank" id="api-docs-link">API Docs</a>
-    </p>
+  <footer>
+    Built by Alvin Alias · 2026 · AA-2026-04 ·
+    <a href="https://github.com/aalias01/hvac-equipment-health">GitHub</a> ·
+    <a href="https://hvac-health-api.onrender.com/docs" id="footer-docs-link">API docs</a>
   </footer>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=aa-2026-04b"></script>
 </body>
 </html>
