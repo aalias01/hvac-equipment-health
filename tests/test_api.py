@@ -1,6 +1,8 @@
 from fastapi.testclient import TestClient
 
+from api import predictor
 from api.main import app
+from api.schemas import SensorReading
 
 
 VALID_READING = {
@@ -41,6 +43,36 @@ def test_units_counts_match_unit_list():
     assert data["snapshot_generated"] == "2026-06-11"
 
 
+def test_demo_readings_are_complete_and_scoreable():
+    with TestClient(app) as client:
+        response = client.get("/demo-readings")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["scenario_count"] == len(data["scenarios"]) == 12
+        assert {scenario["band"] for scenario in data["scenarios"]} == {
+            "normal",
+            "watch",
+            "elevated",
+            "high_attention",
+        }
+
+        representative = []
+        seen_bands = set()
+        for scenario in data["scenarios"]:
+            if scenario["band"] in seen_bands:
+                continue
+            seen_bands.add(scenario["band"])
+            representative.append(scenario)
+
+        for scenario in representative:
+            scored = client.post("/score?shap=false", json=scenario["reading"])
+            assert scored.status_code == 200
+            result = scored.json()
+            assert result["health_tier"] == scenario["expected"]["health_tier"]
+            assert result["if_lof_agree"] == scenario["expected"]["if_lof_agree"]
+
+
 def test_score_accepts_valid_reading_and_rejects_malformed_reading():
     with TestClient(app) as client:
         valid = client.post("/score?shap=false", json=VALID_READING)
@@ -59,6 +91,26 @@ def test_score_accepts_numeric_building_id_from_units():
 
     assert response.status_code == 200
     assert response.json()["building_id"] == "1084"
+
+
+def test_optional_zero_context_values_are_preserved():
+    payload = {
+        **VALID_READING,
+        "rolling_cop_std_24h": 0.0,
+        "wind_speed": 0.0,
+        "hour_of_day": 0,
+        "day_of_week": 0,
+        "is_weekend": 0,
+    }
+    reading = SensorReading(**payload)
+
+    features = predictor._reading_to_features(reading)
+
+    assert features["rolling_cop_std_24h"] == 0.0
+    assert features["wind_speed"] == 0.0
+    assert features["hour_of_day"] == 0
+    assert features["day_of_week"] == 0
+    assert features["is_weekend"] == 0
 
 
 def test_score_batch_returns_one_result_per_input():

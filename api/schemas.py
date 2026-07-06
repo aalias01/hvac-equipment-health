@@ -152,6 +152,44 @@ class UnitListResponse(BaseModel):
     snapshot_generated: Optional[str] = None
 
 
+class DemoBand(BaseModel):
+    """Score band included in the curated demo scenario set."""
+    id: str
+    title: str
+    range: list[float]
+
+
+class DemoExpectedScore(BaseModel):
+    """Expected score metadata captured when the demo scenario was curated."""
+    health_score: float
+    health_tier: str
+    anomaly_flag: int
+    lof_flag: Optional[int] = None
+    if_lof_agree: Optional[int] = None
+
+
+class DemoScenario(BaseModel):
+    """A complete historical reading used by the frontend demo."""
+    id: str
+    band: str
+    title: str
+    source_unit_id: str
+    source_timestamp: str
+    reading: SensorReading
+    expected: DemoExpectedScore
+
+
+class DemoScenariosResponse(BaseModel):
+    """Curated demo readings sampled from the study distribution."""
+    generated: str
+    source: str
+    scoring: str
+    random_state: int
+    scenario_count: int
+    bands: list[DemoBand]
+    scenarios: list[DemoScenario]
+
+
 class HealthResponse(BaseModel):
     """API health check."""
     status: str

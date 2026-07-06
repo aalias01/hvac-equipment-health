@@ -32,7 +32,7 @@ HVAC systems fail in predictable ways: compressor fouling, refrigerant charge lo
 | Readings scored | 2,876,400 | Hourly chilled-water readings (4.18M raw, filtered for rolling-history coverage) |
 | Units analyzed | 497 | Buildings with at least 90 days of meter coverage |
 | Anomaly rate (contamination=0.05) | 5.0% (143,820 readings) | Sensitivity-checked at 0.02 / 0.05 / 0.10; every point flagged at 0.02 stays flagged at 0.05 |
-| Unit health scores | 35.0 to 74.0, median 58.6 | Per-unit mean of the reading-level score; 78 units land in the critical tier |
+| Unit health scores | 35.0 to 74.0, median 58.6 | Per-unit mean of the reading-level score; the live fleet strip presents rank-relative bands |
 | Top SHAP feature | `rolling_cop_std_24h` | 24-hour COP volatility (an intermittent-fault signature) outranks COP level itself |
 | LOF vs Isolation Forest agreement | 91.3% | On a 100k-reading comparison sample |
 
@@ -57,7 +57,7 @@ health score 0-100, per-unit normalized
   SHAP explains which sensor drove each unit's score
         |
 FastAPI (Render)  <->  vanilla JS operations wall (Vercel)
-  scored fleet snapshot, one score reading, detector cross-check
+  scored fleet snapshot, curated demo readings, detector cross-check
 ```
 
 ## Tech stack
@@ -90,6 +90,14 @@ models/scorer_meta.json
 models/unit_baselines.joblib
 ```
 
+Build the curated demo readings from real feature rows:
+
+```bash
+python scripts/curate_demo_readings.py
+```
+
+That writes `models/demo_readings.json`, a small API runtime artifact used by `/demo-readings`.
+
 Then start the API and open the frontend:
 
 ```bash
@@ -97,7 +105,7 @@ uvicorn api.main:app --reload
 # docs at http://localhost:8000/docs
 ```
 
-Open `frontend/index.html`. It points at the deployed API by default; for a local API, run `localStorage.setItem("HVAC_API_BASE", "http://localhost:8000")` in the browser console. The fleet board is a scored snapshot from `models/unit_baselines.joblib`, not live telemetry. The API starts in degraded mode until the model artifacts exist.
+Open `frontend/index.html`. It points at the deployed API by default; for a local API, run `localStorage.setItem("HVAC_API_BASE", "http://localhost:8000")` in the browser console. The fleet board is a scored snapshot from `models/unit_baselines.joblib`, not live telemetry. The score button draws from complete historical readings in `models/demo_readings.json` instead of placeholder sensor defaults. The API starts in degraded mode until the model artifacts exist.
 
 Run tests and lint:
 
@@ -124,6 +132,7 @@ Backend: push to GitHub, then Render > Blueprint > connect the repo (`render.yam
 ├── src/             # features.py, scorer.py
 ├── api/             # FastAPI: main.py, schemas.py, predictor.py
 ├── frontend/        # operations wall (Vercel)
+├── scripts/         # reproducible curation utilities
 ├── models/          # API runtime artifacts (committed)
 ├── figures/         # generated plots
 └── data/            # gitignored; download from Kaggle

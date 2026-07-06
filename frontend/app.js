@@ -1,12 +1,8 @@
 const PRODUCTION_API_BASE = "https://hvac-health-api.onrender.com";
-const API_BASE = window.HVAC_API_BASE || localStorage.getItem("HVAC_API_BASE") || PRODUCTION_API_BASE;
-
-const DEFAULT_READING = {
-  cop_proxy: 3.0,
-  delta_t_supply_proxy: 9.0,
-  delta_t_refrigerant_proxy: 17.0,
-  load_ratio: 0.70,
-};
+const API_BASE = window.HVAC_API_BASE
+  || new URLSearchParams(window.location.search).get("api")
+  || localStorage.getItem("HVAC_API_BASE")
+  || PRODUCTION_API_BASE;
 
 const FEATURE_GLOSSES = {
   rolling_cop_std_24h: "COP volatility over 24h",
@@ -19,6 +15,7 @@ const FEATURE_GLOSSES = {
 const state = {
   health: null,
   units: [],
+  demoScenarios: [],
   recent: [],
   currentScore: null,
   currentTier: null,
@@ -62,6 +59,7 @@ window.addEventListener("DOMContentLoaded", () => {
   bindEvents();
   checkHealth();
   loadUnits();
+  loadDemoReadings();
 });
 
 function bindEvents() {
@@ -131,41 +129,54 @@ async function loadUnits() {
   }
 }
 
+async function loadDemoReadings() {
+  try {
+    const response = await fetch(`${API_BASE}/demo-readings`);
+    if (!response.ok) {
+      throw new Error(await readError(response));
+    }
+    const data = await response.json();
+    state.demoScenarios = Array.isArray(data.scenarios) ? data.scenarios : [];
+  } catch (error) {
+    state.demoScenarios = [];
+    console.warn("Could not load demo readings", error);
+  }
+}
+
 function renderFleet(data) {
   const stamp = data.snapshot_generated ? ` · scored ${data.snapshot_generated}` : "";
-  els.fleetTitle.textContent = `The fleet · ${data.total} units, scored from the meter study${stamp}`;
+  els.fleetTitle.textContent = `The fleet · ${data.total} units, relative snapshot from the meter study${stamp}`;
   els.fleetMessage.textContent = "";
   setFleetCounts(data);
 }
 
 function setFleetCounts(data = {}) {
-  els.counts.critical.textContent = formatCount(data.n_critical);
-  els.counts.warning.textContent = formatCount(data.n_warning);
-  els.counts.monitor.textContent = formatCount(data.n_monitor);
-  els.counts.healthy.textContent = formatCount(data.n_healthy);
-  els.counts.total.textContent = formatCount(data.total);
+  const units = Array.isArray(data.units) ? data.units : state.units;
+  const bands = summarizeFleetBands(units);
+  els.counts.critical.textContent = formatCount(bands.highAttention);
+  els.counts.warning.textContent = formatCount(bands.elevated);
+  els.counts.monitor.textContent = formatCount(bands.watch);
+  els.counts.healthy.textContent = formatCount(bands.normal);
+  els.counts.total.textContent = formatCount(data.total ?? (units.length > 0 ? units.length : undefined));
 }
 
 async function scoreFleetUnit() {
   clearError();
-  if (state.units.length === 0) {
-    await loadUnits();
+  if (state.demoScenarios.length === 0) {
+    await loadDemoReadings();
   }
-  if (state.units.length === 0) {
-    showError("Could not load the fleet.", "no units returned");
+  if (state.demoScenarios.length === 0) {
+    showError("Could not load the demo readings.", "GET /demo-readings returned no scenarios");
     return;
   }
 
-  const unit = drawUnit();
-  const id = String(unit.building_id);
-  const reading = {
-    building_id: id,
-    ...DEFAULT_READING,
-    ...dateFields(),
-  };
+  const scenario = drawDemoScenario();
 
-  setLog([`> unit ${id} drawn from the fleet table`, "> representative readings scored against this unit's own baseline"]);
-  await scoreReading(reading, true);
+  setLog([
+    `> ${scenario.title.toLowerCase()} · unit ${scenario.source_unit_id} drawn from curated readings`,
+    "> complete historical features scored against this unit's baseline",
+  ]);
+  await scoreReading(scenario.reading, true, scenario);
 }
 
 async function scoreManualReading() {
@@ -175,11 +186,11 @@ async function scoreManualReading() {
     showError("Enter at least COP, both delta-T values, and load ratio.");
     return;
   }
-  setLog(["> manual readings sent to the scorer"]);
+  setLog(["> manual readings sent with estimated rolling context"]);
   await scoreReading(reading, false);
 }
 
-async function scoreReading(reading, recordRecent) {
+async function scoreReading(reading, recordRecent, context = null) {
   const started = performance.now();
   const warmup = scheduleWarmup("main", started, true);
   setBusy(true);
@@ -196,9 +207,9 @@ async function scoreReading(reading, recordRecent) {
     finishWarmup(warmup);
     const seconds = ((performance.now() - started) / 1000).toFixed(1);
     appendLog(`> scored in ${seconds} s · both detectors ran`);
-    renderScore(data);
+    renderScore(data, context);
     if (recordRecent) {
-      addRecent(data);
+      addRecent(data, context);
     }
   } catch (error) {
     cancelWarmup(warmup);
@@ -224,15 +235,27 @@ function buildManualReading() {
   if ([cop, supply, refrigerant, load].some((value) => value === null)) {
     return null;
   }
-  return {
+  const reading = {
     ...dateFields(),
     cop_proxy: cop,
     delta_t_supply_proxy: supply,
     delta_t_refrigerant_proxy: refrigerant,
     load_ratio: load,
-    air_temperature: readNumber("air-temperature"),
-    hour_of_day: readInteger("hour-of-day"),
+    rolling_cop_mean_24h: cop,
+    rolling_cop_std_24h: Math.max(0.05, Math.min(0.8, cop * 0.05)),
+    rolling_load_mean_24h: load,
+    rolling_cop_mean_168h: cop,
+    cop_deviation_from_baseline: 0,
   };
+  const airTemperature = readNumber("air-temperature");
+  const hourOfDay = readInteger("hour-of-day");
+  if (airTemperature !== null) {
+    reading.air_temperature = airTemperature;
+  }
+  if (hourOfDay !== null) {
+    reading.hour_of_day = hourOfDay;
+  }
+  return reading;
 }
 
 function dateFields() {
@@ -246,29 +269,29 @@ function dateFields() {
   };
 }
 
-function drawUnit() {
-  const drawn = getDrawnUnits();
-  let pool = state.units.filter((unit) => !drawn.has(String(unit.building_id)));
+function drawDemoScenario() {
+  const drawn = getDrawnScenarios();
+  let pool = state.demoScenarios.filter((scenario) => !drawn.has(scenario.id));
   if (pool.length === 0) {
-    sessionStorage.removeItem("hvacDrawnUnits");
-    pool = state.units.slice();
+    sessionStorage.removeItem("hvacDrawnScenarios");
+    pool = state.demoScenarios.slice();
   }
   const index = Math.floor(Math.random() * pool.length);
-  const unit = pool[index];
-  drawn.add(String(unit.building_id));
-  sessionStorage.setItem("hvacDrawnUnits", JSON.stringify(Array.from(drawn)));
-  return unit;
+  const scenario = pool[index];
+  drawn.add(scenario.id);
+  sessionStorage.setItem("hvacDrawnScenarios", JSON.stringify(Array.from(drawn)));
+  return scenario;
 }
 
-function getDrawnUnits() {
+function getDrawnScenarios() {
   try {
-    return new Set(JSON.parse(sessionStorage.getItem("hvacDrawnUnits") || "[]"));
+    return new Set(JSON.parse(sessionStorage.getItem("hvacDrawnScenarios") || "[]"));
   } catch {
     return new Set();
   }
 }
 
-function renderScore(data) {
+function renderScore(data, context = null) {
   const score = Number(data.health_score ?? 0);
   const tier = sanitizeTier(data.health_tier);
   state.currentScore = score;
@@ -276,7 +299,8 @@ function renderScore(data) {
 
   els.scoreValue.textContent = score.toFixed(1);
   els.scoreValue.classList.toggle("is-critical", tier === "critical");
-  els.scoreLabel.textContent = `health · ${tier} tier`;
+  const label = context?.title ? context.title.toLowerCase() : `${tier} tier`;
+  els.scoreLabel.textContent = `reading health · ${label}`;
   els.tierChip.hidden = false;
   els.tierChip.textContent = tier;
   els.tierChip.className = `tier-chip tier-chip--${tier}`;
@@ -330,18 +354,23 @@ function renderHealthScale(score = null, tier = null) {
 function renderCrossCheck(data) {
   const agree = Number(data.if_lof_agree) === 1;
   const hasValue = data.if_lof_agree !== null && data.if_lof_agree !== undefined;
+  const flagged = Number(data.anomaly_flag) === 1;
   els.crossCheck.hidden = false;
   els.crossCheck.classList.toggle("is-care", hasValue && !agree);
   const strong = els.crossCheck.querySelector("strong");
   const detail = els.crossCheck.querySelector("span");
   if (!hasValue) {
-    strong.textContent = "Cross-check · LOF did not return a comparison for this score";
+    strong.textContent = "Cross-check unavailable · LOF did not return a comparison";
+    detail.textContent = "review the Isolation Forest score without the secondary detector";
   } else if (agree) {
-    strong.textContent = "Cross-check · Isolation Forest and LOF agree on this unit";
+    strong.textContent = flagged
+      ? "Cross-check · both detectors flag this reading"
+      : "Cross-check · both detectors see a normal pattern";
+    detail.textContent = "Isolation Forest and LOF agree; sample agreement is 91.3%";
   } else {
-    strong.textContent = "Cross-check · the two detectors disagree on this unit; treat this score with extra care";
+    strong.textContent = "Low-confidence cross-check · the detectors disagree";
+    detail.textContent = "review this as an algorithm-dependent triage signal";
   }
-  detail.textContent = "the detectors agree on 91.3% of a 100,000-reading sample";
 }
 
 function renderDeflections(factors) {
@@ -366,8 +395,10 @@ function renderDeflections(factors) {
   }).join("");
 }
 
-function addRecent(data) {
-  const unit = data.building_id === null || data.building_id === undefined ? "manual" : `unit ${data.building_id}`;
+function addRecent(data, context = null) {
+  const unit = context
+    ? `${context.band.replace("_", " ")} · unit ${context.source_unit_id}`
+    : data.building_id === null || data.building_id === undefined ? "manual" : `unit ${data.building_id}`;
   state.recent.unshift({
     unit,
     score: Number(data.health_score || 0).toFixed(1),
@@ -381,6 +412,18 @@ function addRecent(data) {
       <td>${item.tier}</td>
     </tr>
   `).join("");
+}
+
+function summarizeFleetBands(units) {
+  const total = Array.isArray(units) ? units.length : 0;
+  if (total === 0) {
+    return {};
+  }
+  const highAttention = Math.ceil(total * 0.15);
+  const elevated = Math.ceil(total * 0.35);
+  const watch = Math.ceil(total * 0.30);
+  const normal = Math.max(0, total - highAttention - elevated - watch);
+  return { highAttention, elevated, watch, normal };
 }
 
 function scheduleWarmup(target, started, logToRun) {

@@ -25,7 +25,13 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from api.schemas import SensorReading, ScoreResponse, UnitListResponse, HealthResponse
+from api.schemas import (
+    DemoScenariosResponse,
+    HealthResponse,
+    SensorReading,
+    ScoreResponse,
+    UnitListResponse,
+)
 import api.predictor as predictor
 from src.scorer import TIER_CUTOFFS
 
@@ -88,6 +94,7 @@ def root():
         "endpoints": {
             "health":     "GET /health",
             "units":      "GET /units",
+            "demo":       "GET /demo-readings",
             "score":      "POST /score",
             "batch":      "POST /score/batch",
             "docs":       "GET /docs",
@@ -121,6 +128,25 @@ def get_units():
             detail="Scorer not loaded. Run notebook 03 to train and save models.",
         )
     return predictor.get_all_units()
+
+
+@app.get("/demo-readings", response_model=DemoScenariosResponse)
+def get_demo_readings():
+    """
+    Return curated, complete historical readings for the frontend demo.
+
+    These scenarios avoid placeholder rolling features and are scored against
+    each source unit's own baseline when posted to /score.
+    """
+    if not predictor.is_ready():
+        raise HTTPException(
+            status_code=503,
+            detail="Scorer not loaded. Run notebook 03 to train and save models.",
+        )
+    try:
+        return predictor.get_demo_readings()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.post("/score", response_model=ScoreResponse)

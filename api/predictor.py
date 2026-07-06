@@ -13,9 +13,16 @@ from pathlib import Path
 from typing import Optional
 
 from src.scorer import Scorer
-from api.schemas import SensorReading, ScoreResponse, SHAPFactor, UnitListResponse
+from api.schemas import (
+    DemoScenariosResponse,
+    SensorReading,
+    ScoreResponse,
+    SHAPFactor,
+    UnitListResponse,
+)
 
 MODEL_DIR = Path("models")
+DEMO_READINGS_PATH = MODEL_DIR / "demo_readings.json"
 
 # Module-level singleton — loaded once at startup
 _scorer: Optional[Scorer] = None
@@ -24,6 +31,7 @@ _ready = False
 # In-memory unit score cache for the "all units" dashboard view
 # Populated by batch scoring from notebooks; refreshed on restart
 _unit_cache: list[dict] = []
+_demo_cache: Optional[DemoScenariosResponse] = None
 
 
 def load_scorer() -> None:
@@ -111,6 +119,21 @@ def get_all_units() -> UnitListResponse:
     )
 
 
+def get_demo_readings() -> DemoScenariosResponse:
+    """Return curated complete readings used by the public demo."""
+    global _demo_cache
+    if _demo_cache is not None:
+        return _demo_cache
+    if not DEMO_READINGS_PATH.exists():
+        raise RuntimeError("Demo readings not found. Run scripts/curate_demo_readings.py.")
+    try:
+        payload = json.loads(DEMO_READINGS_PATH.read_text())
+        _demo_cache = DemoScenariosResponse(**payload)
+        return _demo_cache
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise RuntimeError(f"Could not load demo readings: {exc}") from exc
+
+
 def _load_unit_baseline_meta() -> dict:
     meta_path = MODEL_DIR / "unit_baselines_meta.json"
     if not meta_path.exists():
@@ -129,16 +152,21 @@ def _reading_to_features(reading: SensorReading) -> dict:
         "delta_t_supply_proxy":         reading.delta_t_supply_proxy,
         "delta_t_refrigerant_proxy":    reading.delta_t_refrigerant_proxy,
         "load_ratio":                   reading.load_ratio,
-        "rolling_cop_mean_24h":         reading.rolling_cop_mean_24h or 0.0,
-        "rolling_cop_std_24h":          reading.rolling_cop_std_24h or 0.0,
-        "rolling_load_mean_24h":        reading.rolling_load_mean_24h or 0.0,
-        "rolling_cop_mean_168h":        reading.rolling_cop_mean_168h or 0.0,
-        "cop_deviation_from_baseline":  reading.cop_deviation_from_baseline or 0.0,
-        "air_temperature":              reading.air_temperature or 20.0,
-        "dew_temperature":              reading.dew_temperature or 15.0,
-        "wind_speed":                   reading.wind_speed or 2.0,
-        "hour_of_day":                  reading.hour_of_day or 12,
-        "day_of_week":                  reading.day_of_week or 2,
-        "is_weekend":                   reading.is_weekend or 0,
-        "month":                        reading.month or 6,
+        "rolling_cop_mean_24h":         _default(reading.rolling_cop_mean_24h, 0.0),
+        "rolling_cop_std_24h":          _default(reading.rolling_cop_std_24h, 0.0),
+        "rolling_load_mean_24h":        _default(reading.rolling_load_mean_24h, 0.0),
+        "rolling_cop_mean_168h":        _default(reading.rolling_cop_mean_168h, 0.0),
+        "cop_deviation_from_baseline":  _default(reading.cop_deviation_from_baseline, 0.0),
+        "air_temperature":              _default(reading.air_temperature, 20.0),
+        "dew_temperature":              _default(reading.dew_temperature, 15.0),
+        "wind_speed":                   _default(reading.wind_speed, 2.0),
+        "hour_of_day":                  _default(reading.hour_of_day, 12),
+        "day_of_week":                  _default(reading.day_of_week, 2),
+        "is_weekend":                   _default(reading.is_weekend, 0),
+        "month":                        _default(reading.month, 6),
     }
+
+
+def _default(value, fallback):
+    """Preserve valid numeric zeroes while filling omitted optional fields."""
+    return fallback if value is None else value

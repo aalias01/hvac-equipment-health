@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=B612:wght@400;700&family=B612+Mono:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=aa-2026-04b" />
+  <link rel="stylesheet" href="style.css?v=aa-2026-04c" />
 </head>
 <body>
   <header class="nameplate">
@@ -93,23 +93,23 @@
       <p class="fleet__message" id="fleet-message">pulling the fleet</p>
       <div class="fleet__strip" id="fleet-strip">
         <article class="fleet-cell fleet-cell--critical">
-          <strong id="count-critical" title="/units n_critical">--</strong>
-          <span>critical</span>
+          <strong id="count-critical" title="fleet-relative bottom band">--</strong>
+          <span>high attention</span>
           <i class="hatch hatch--critical" aria-hidden="true"></i>
         </article>
         <article class="fleet-cell fleet-cell--warning">
-          <strong id="count-warning" title="/units n_warning">--</strong>
-          <span>warning</span>
+          <strong id="count-warning" title="fleet-relative elevated band">--</strong>
+          <span>elevated</span>
           <i class="hatch hatch--warning" aria-hidden="true"></i>
         </article>
         <article class="fleet-cell fleet-cell--monitor">
-          <strong id="count-monitor" title="/units n_monitor">--</strong>
-          <span>monitor</span>
+          <strong id="count-monitor" title="fleet-relative watch band">--</strong>
+          <span>watch</span>
           <i class="hatch hatch--monitor" aria-hidden="true"></i>
         </article>
         <article class="fleet-cell fleet-cell--healthy">
-          <strong id="count-healthy" title="/units n_healthy">--</strong>
-          <span>healthy</span>
+          <strong id="count-healthy" title="fleet-relative top band">--</strong>
+          <span>normal</span>
           <i class="hatch hatch--healthy" aria-hidden="true"></i>
         </article>
         <article class="fleet-cell fleet-cell--total">
@@ -122,8 +122,8 @@
 
     <section class="faceplate" aria-label="Unit health scorer">
       <div class="controls">
-        <button class="primary-run" id="score-fleet" type="button">Score a fleet unit</button>
-        <p class="helper">Picks a real unit from the scored fleet and runs it against its own baseline, then prints whether both detectors agree about it.</p>
+        <button class="primary-run" id="score-fleet" type="button">Score a demo scenario</button>
+        <p class="helper">Draws a complete historical reading from curated normal, watch, elevated, and high-attention examples.</p>
 
         <details class="manual" id="manual-panel">
           <summary>Enter readings yourself</summary>
@@ -222,7 +222,7 @@
         <p class="anomaly-line" id="anomaly-line" hidden>flagged as anomalous by the primary detector</p>
 
         <section class="deflection" aria-labelledby="deflection-title">
-          <h2 id="deflection-title">What moved this score</h2>
+          <h2 id="deflection-title">What moved this reading score</h2>
           <div class="deflection__list" id="deflection-list"></div>
         </section>
       </div>
@@ -236,7 +236,7 @@
             <tr><td>2,876,400 hourly readings scored · 4.18M raw, filtered for rolling-history coverage</td></tr>
             <tr><td>497 units with at least 90 days of coverage</td></tr>
             <tr><td>Anomaly rate 5.0% at contamination 0.05 · every point flagged at 0.02 stays flagged at 0.05</td></tr>
-            <tr><td>Unit scores 35.0 to 74.0, median 58.6 · 78 units in the critical tier</td></tr>
+            <tr><td>Unit baseline scores 35.0 to 74.0, median 58.6 · fleet strip shown as rank-relative bands</td></tr>
             <tr><td>LOF vs Isolation Forest agreement 91.3% on a 100k sample</td></tr>
             <tr><td>Top factor: 24-hour COP volatility, an intermittent-fault signature, outranking COP level itself</td></tr>
           </tbody>
@@ -252,7 +252,7 @@
           <li>This runs on a free tier that sleeps between visitors. First start takes 30 to 60 seconds; runs after that are quick.</li>
           <li>No failure labels exist in this data. The score reads anomaly structure, and the LOF cross-check is the only independent witness, which is why it prints with every run.</li>
           <li>The fleet board is a scored snapshot of the study data, not a live feed; every unit on it is real and every score was computed by the model.</li>
-          <li>Unit scoring uses representative default readings when a fleet unit is pulled; enter your own readings for a fully manual score.</li>
+          <li>Demo scoring uses complete historical readings with rolling context; manual scoring estimates rolling context from the entered COP and load values.</li>
         </ol>
       </details>
     </section>
@@ -264,6 +264,6 @@
     <a href="https://hvac-health-api.onrender.com/docs" id="footer-docs-link">API docs</a>
   </footer>
 
-  <script src="app.js?v=aa-2026-04b"></script>
+  <script src="app.js?v=aa-2026-04c"></script>
 </body>
 </html>
