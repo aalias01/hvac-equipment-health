@@ -318,30 +318,30 @@ function renderScore(data, context = null) {
 function renderHealthScale(score = null, tier = null) {
   const minX = 24;
   const maxX = 576;
-  const y = 46;
+  const y = 62;
   const scaleX = (value) => minX + (Math.max(0, Math.min(100, value)) / 100) * (maxX - minX);
   const minorTicks = [];
   for (let value = 0; value <= 100; value += 5) {
     const major = value % 25 === 0;
-    minorTicks.push(`<line class="${major ? "major" : "minor"}" x1="${scaleX(value)}" y1="${major ? 34 : 38}" x2="${scaleX(value)}" y2="${major ? 58 : 54}" />`);
+    minorTicks.push(`<line class="${major ? "major" : "minor"}" x1="${scaleX(value)}" y1="${major ? 50 : 54}" x2="${scaleX(value)}" y2="${major ? 74 : 70}" />`);
   }
   const labels = [0, 25, 50, 75, 100]
-    .map((value) => `<text x="${scaleX(value)}" y="78">${value}</text>`)
+    .map((value) => `<text x="${scaleX(value)}" y="98">${value}</text>`)
     .join("");
   const boundaries = state.health?.tiers
     ? Object.entries(state.health.tiers)
         .map(([name, value]) => `
-          <line class="boundary" x1="${scaleX(value)}" y1="22" x2="${scaleX(value)}" y2="62" />
-          <text x="${scaleX(value)}" y="15">${name} ${value}</text>
+          <line class="boundary" x1="${scaleX(value)}" y1="24" x2="${scaleX(value)}" y2="76" />
+          <text class="threshold-label" x="${scaleX(value)}" y="15">${name}</text>
         `)
         .join("")
     : "";
   const marker = score === null
     ? ""
-    : `<polygon class="marker ${tier === "critical" ? "is-critical" : ""}" points="${scaleX(score)},24 ${scaleX(score) - 7},10 ${scaleX(score) + 7},10" />`;
+    : `<polygon class="marker ${tier === "critical" ? "is-critical" : ""}" points="${scaleX(score)},44 ${scaleX(score) - 7},30 ${scaleX(score) + 7},30" />`;
 
   els.healthScale.innerHTML = `
-    <svg class="health-svg" viewBox="0 0 600 92" role="img" aria-label="Health score scale">
+    <svg class="health-svg" viewBox="0 0 600 112" role="img" aria-label="Health score scale: warning at 50, monitor at 70, healthy at 90">
       <line class="baseline" x1="${minX}" y1="${y}" x2="${maxX}" y2="${y}" />
       ${minorTicks.join("")}
       ${boundaries}
