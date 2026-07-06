@@ -5,7 +5,7 @@ api/schemas.py — Pydantic models for HVAC Health Scoring API request/response 
 from __future__ import annotations
 
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ---------------------------------------------------------------------------
@@ -24,6 +24,15 @@ class SensorReading(BaseModel):
         description="Unit/building identifier. If provided, enables per-unit normalization.",
         examples=["building_001"],
     )
+
+    @field_validator("building_id", mode="before")
+    @classmethod
+    def coerce_building_id(cls, value):
+        """Accept numeric IDs returned by /units while storing a stable string ID."""
+        if value is None:
+            return None
+        return str(value)
+
     # Primary engineered features (required for meaningful score)
     cop_proxy: float = Field(..., description="Coefficient of Performance estimate", ge=0, le=10)
     delta_t_supply_proxy: float = Field(

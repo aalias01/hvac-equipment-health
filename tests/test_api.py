@@ -51,6 +51,16 @@ def test_score_accepts_valid_reading_and_rejects_malformed_reading():
     assert malformed.status_code == 422
 
 
+def test_score_accepts_numeric_building_id_from_units():
+    reading = {**VALID_READING, "building_id": 1084}
+
+    with TestClient(app) as client:
+        response = client.post("/score?shap=false", json=reading)
+
+    assert response.status_code == 200
+    assert response.json()["building_id"] == "1084"
+
+
 def test_score_batch_returns_one_result_per_input():
     with TestClient(app) as client:
         response = client.post("/score/batch?shap=false", json=[VALID_READING, VALID_READING])
