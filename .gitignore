@@ -43,5 +43,10 @@ models/*
 !models/unit_baselines.joblib
 !models/unit_baselines_meta.json
 
+!models/demo_readings.json
+
 # AI-generated build guides — private scaffolding notes
 guides/
+
+# Local HF Space clone (obsolete; API is portfolio-ml-api)
+hvac-health/
