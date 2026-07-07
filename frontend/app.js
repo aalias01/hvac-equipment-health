@@ -1,4 +1,4 @@
-const PRODUCTION_API_BASE = "https://hvac-health-api.onrender.com";
+const PRODUCTION_API_BASE = "https://alvinalias-portfolio-ml-api.hf.space/hvac";
 const API_BASE = window.HVAC_API_BASE
   || new URLSearchParams(window.location.search).get("api")
   || localStorage.getItem("HVAC_API_BASE")
@@ -216,7 +216,7 @@ async function scoreReading(reading, recordRecent, context = null) {
     const network = error instanceof TypeError;
     if (network) {
       showError(
-        "Could not score this unit. This runs on a free tier that sleeps between visitors. First start takes 30 to 60 seconds; runs after that are quick. Try again in a moment.",
+        "Could not score this unit. This ML demo sleeps after extended inactivity; the Space may still be waking. Try again in a moment.",
         "network error",
       );
     } else {
