@@ -8,7 +8,7 @@ Scores the health of HVAC units (0 to 100) from operational sensor data and expl
 [![CI](https://github.com/aalias01/hvac-equipment-health/actions/workflows/ci.yml/badge.svg)](https://github.com/aalias01/hvac-equipment-health/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**[Live demo](https://hvac.alvinalias.com)** | **[API docs](https://hvac-health-api.onrender.com/docs)**
+**[Live demo](https://hvac.alvinalias.com)** | **[API docs](https://alvinalias-portfolio-ml-api.hf.space/hvac/docs)**
 
 ## Why
 
@@ -56,13 +56,13 @@ anomaly detection (src/scorer.py)
 health score 0-100, per-unit normalized
   SHAP explains which sensor drove each unit's score
         |
-FastAPI (Render)  <->  vanilla JS operations wall (Vercel)
+FastAPI (shared HF Space)  <->  vanilla JS operations wall (Vercel)
   scored fleet snapshot, curated demo readings, detector cross-check
 ```
 
 ## Tech stack
 
-Python 3.11, Pandas, NumPy, scikit-learn 1.7 (Isolation Forest, LOF), SHAP TreeExplainer, FastAPI on Render, vanilla HTML/CSS/JS operations wall on Vercel. Environments: `environment.yml` (conda, local) and `requirements.txt` (pip, Render).
+Python 3.11, Pandas, NumPy, scikit-learn 1.7 (Isolation Forest, LOF), SHAP TreeExplainer, FastAPI on a shared Hugging Face Docker Space, vanilla HTML/CSS/JS operations wall on Vercel. Environments: `environment.yml` for local conda work and `requirements.txt` for pip serving.
 
 ## Dataset
 
@@ -119,11 +119,11 @@ pytest -q
 
 - ASHRAE meters are building-level, so "unit" here means a building's chilled-water system, not an individual compressor. The physics features still apply, but a real deployment would use equipment-level telemetry.
 - Anomaly detection is unsupervised; there are no ground-truth failure labels in this dataset to compute precision or recall against.
-- The API runs on Render's free tier; the first request after idle can take around a minute to cold-start.
+- The shared Hugging Face CPU Space sleeps after extended inactivity; the first request to this route can take a moment while the service wakes and loads its models.
 
 ## Deployment
 
-Backend: push to GitHub, then Render > Blueprint > connect the repo (`render.yaml` does the rest). Frontend: connect the repo on Vercel with root directory `frontend/`. After both deploy, update `API_BASE` in `app.js` and `allow_origins` in `api/main.py`.
+From the portfolio workspace, run `bash portfolio_ml_api/scripts/sync_from_portfolio.sh`, commit the changes in `portfolio_ml_api`, and push its `main` branch. GitHub Actions deploys the shared Hugging Face Docker Space. This service is mounted at `/hvac`. Vercel serves `frontend/` at the live demo URL.
 
 ## Project structure
 
