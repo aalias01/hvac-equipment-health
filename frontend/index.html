@@ -85,40 +85,43 @@
   </header>
 
   <main>
-    <section class="fleet" aria-labelledby="fleet-title">
-      <div class="section-heading">
-        <h2 id="fleet-title">The fleet · 497 units, scored from the meter study</h2>
-        <button class="icon-button" id="refresh-fleet" type="button" aria-label="Refresh fleet" title="Refresh fleet">↻</button>
-      </div>
-      <p class="fleet__message" id="fleet-message">pulling the fleet</p>
-      <div class="fleet__strip" id="fleet-strip">
-        <article class="fleet-cell fleet-cell--critical">
-          <strong id="count-critical" title="fleet-relative bottom band">--</strong>
-          <span>high attention</span>
-          <i class="hatch hatch--critical" aria-hidden="true"></i>
-        </article>
-        <article class="fleet-cell fleet-cell--warning">
-          <strong id="count-warning" title="fleet-relative elevated band">--</strong>
-          <span>elevated</span>
-          <i class="hatch hatch--warning" aria-hidden="true"></i>
-        </article>
-        <article class="fleet-cell fleet-cell--monitor">
-          <strong id="count-monitor" title="fleet-relative watch band">--</strong>
-          <span>watch</span>
-          <i class="hatch hatch--monitor" aria-hidden="true"></i>
-        </article>
-        <article class="fleet-cell fleet-cell--healthy">
-          <strong id="count-healthy" title="fleet-relative top band">--</strong>
-          <span>normal</span>
-          <i class="hatch hatch--healthy" aria-hidden="true"></i>
-        </article>
-        <article class="fleet-cell fleet-cell--total">
-          <strong id="count-total" title="/units total">--</strong>
-          <span>total</span>
-          <i class="hatch hatch--total" aria-hidden="true"></i>
-        </article>
-      </div>
-    </section>
+    <details class="fleet mobile-disclosure" data-mobile-disclosure open>
+      <summary>Fleet snapshot · 497 units</summary>
+      <section class="mobile-disclosure__body" aria-labelledby="fleet-title">
+        <div class="section-heading">
+          <h2 id="fleet-title">The fleet · 497 units, scored from the meter study</h2>
+          <button class="icon-button" id="refresh-fleet" type="button" aria-label="Refresh fleet" title="Refresh fleet">↻</button>
+        </div>
+        <p class="fleet__message" id="fleet-message">pulling the fleet</p>
+        <div class="fleet__strip" id="fleet-strip">
+          <article class="fleet-cell fleet-cell--critical">
+            <strong id="count-critical" title="fleet-relative bottom band">--</strong>
+            <span>high attention</span>
+            <i class="hatch hatch--critical" aria-hidden="true"></i>
+          </article>
+          <article class="fleet-cell fleet-cell--warning">
+            <strong id="count-warning" title="fleet-relative elevated band">--</strong>
+            <span>elevated</span>
+            <i class="hatch hatch--warning" aria-hidden="true"></i>
+          </article>
+          <article class="fleet-cell fleet-cell--monitor">
+            <strong id="count-monitor" title="fleet-relative watch band">--</strong>
+            <span>watch</span>
+            <i class="hatch hatch--monitor" aria-hidden="true"></i>
+          </article>
+          <article class="fleet-cell fleet-cell--healthy">
+            <strong id="count-healthy" title="fleet-relative top band">--</strong>
+            <span>normal</span>
+            <i class="hatch hatch--healthy" aria-hidden="true"></i>
+          </article>
+          <article class="fleet-cell fleet-cell--total">
+            <strong id="count-total" title="/units total">--</strong>
+            <span>total</span>
+            <i class="hatch hatch--total" aria-hidden="true"></i>
+          </article>
+        </div>
+      </section>
+    </details>
 
     <section class="faceplate" aria-label="Unit health scorer">
       <div class="controls">
@@ -163,12 +166,15 @@
         <div class="error-block" id="score-error" hidden></div>
         <pre class="run-log" id="run-log" aria-live="polite"></pre>
 
-        <section class="recent" aria-labelledby="recent-title">
-          <h2 id="recent-title">Recent pulls</h2>
-          <table>
-            <tbody id="recent-pulls"></tbody>
-          </table>
-        </section>
+        <details class="recent mobile-disclosure" data-mobile-disclosure open>
+          <summary>Recent pulls</summary>
+          <section class="mobile-disclosure__body" aria-labelledby="recent-title">
+            <h2 id="recent-title">Recent pulls</h2>
+            <table>
+              <tbody id="recent-pulls"></tbody>
+            </table>
+          </section>
+        </details>
       </div>
 
       <div class="reading">
@@ -221,10 +227,13 @@
         </div>
         <p class="anomaly-line" id="anomaly-line" hidden>flagged as anomalous by the primary detector</p>
 
-        <section class="deflection" aria-labelledby="deflection-title">
-          <h2 id="deflection-title">What moved this reading score</h2>
-          <div class="deflection__list" id="deflection-list"></div>
-        </section>
+        <details class="deflection mobile-disclosure" data-mobile-disclosure open>
+          <summary>What moved this score</summary>
+          <section class="mobile-disclosure__body" aria-labelledby="deflection-title">
+            <h2 id="deflection-title">What moved this reading score</h2>
+            <div class="deflection__list" id="deflection-list"></div>
+          </section>
+        </details>
       </div>
     </section>
 
@@ -264,6 +273,7 @@
     <a href="https://alvinalias-portfolio-ml-api.hf.space/hvac/docs" id="footer-docs-link">API docs</a>
   </footer>
 
+  <script src="mobile-disclosures.js"></script>
   <script src="app.js?v=aa-2026-04d"></script>
 </body>
 </html>
