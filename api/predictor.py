@@ -1,5 +1,5 @@
 """
-api/predictor.py — Model loading and inference for the HVAC Health Scoring API.
+Model loading and inference for the building-anomaly scoring API.
 
 Loads the Scorer at startup. Provides score_single() and score_batch() for
 the FastAPI endpoints. Gracefully degrades to a "not ready" state if models
@@ -57,14 +57,14 @@ def get_scorer() -> Optional[Scorer]:
 
 def score_single(reading: SensorReading, include_shap: bool = True) -> ScoreResponse:
     """
-    Score a single HVAC unit sensor snapshot.
+    Score one processed building meter/weather proxy row.
 
     Args:
         reading: validated SensorReading from the request body
         include_shap: compute SHAP explanations (adds ~50ms latency for single prediction)
 
     Returns:
-        ScoreResponse with health_score, health_tier, anomaly_flag, SHAP factors
+        ScoreResponse with legacy score/tier fields, anomaly flag, and SHAP associations
     """
     if not _ready or _scorer is None:
         raise RuntimeError("Scorer not loaded. Train models first.")
@@ -94,7 +94,7 @@ def score_single(reading: SensorReading, include_shap: bool = True) -> ScoreResp
 
 def get_all_units() -> UnitListResponse:
     """
-    Return summary health scores for all units in the cached batch results.
+    Return relative scores for buildings in the cached study snapshot.
     The cache is populated from notebook 03 output written to models/unit_baselines.joblib.
     """
     import joblib

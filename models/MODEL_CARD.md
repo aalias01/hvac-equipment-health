@@ -1,8 +1,8 @@
-# HVAC equipment health model card
+# HVAC building anomaly model card
 
 ## Score
 
-The API returns a health score from 0 to 100. It starts with the Isolation Forest decision score, where higher means more normal. The score is inverted into a health reading and normalized per unit with that unit's 5th and 95th percentile raw scores, so each unit is judged against its own operating history.
+The API returns a rank-relative display score from 0 to 100. It starts with the Isolation Forest decision score, where higher means more normal, and normalizes it per building system against that system's retained operating history. It is not a calibrated probability of equipment health or failure.
 
 The display tiers are fixed buckets: healthy at 90 and above, monitor at 70 to 89, warning at 50 to 69, and critical below 50. The tiers are presentation buckets, not labeled failure classes.
 
@@ -14,7 +14,7 @@ Local Outlier Factor is the independent cross-check. LOF and Isolation Forest ag
 
 ## Features
 
-The model uses 16 physics-derived features: COP, supply delta-T, refrigerant delta-T, load ratio, rolling 24-hour and 7-day summaries, weather context, and calendar fields. The feature set comes from three years of HVAC product development work at Rheem Manufacturing.
+The model uses 16 HVAC-informed proxy and context features built from chilled-water demand, outdoor weather, square footage, calendar fields, and rolling summaries. `cop_proxy` is not measured COP; both delta-T fields are ambient/setpoint approximations rather than equipment temperatures; load ratio uses a square-footage capacity heuristic.
 
 ## Data
 
@@ -26,10 +26,10 @@ The training data is ASHRAE meter data. The scored set contains 2,876,400 hourly
 
 ## Finding
 
-The top factor is `rolling_cop_std_24h`: 24-hour COP volatility. It is an intermittent-fault signature and outranks COP level itself in the SHAP summary.
+The top factor is `rolling_cop_std_24h`, the 24-hour variability of the cooling-efficiency proxy. It contributes most to this detector's score, but without failure labels it cannot be called an intermittent-fault signature or an early degradation signal.
 
 ## Limits
 
-No failure labels exist in this data. The score reads anomaly structure, not time-to-failure or confirmed fault status. The LOF cross-check is the independent witness, not proof of correctness.
+No equipment-level telemetry or failure labels exist in this data. The score reads building-meter anomaly structure, not time-to-failure or confirmed fault status. LOF agreement is a consistency check, not proof of correctness.
 
 The fleet view is a static scored snapshot from `models/unit_baselines.joblib`, not live telemetry. Its cards are rank-relative bands for triage, not labeled fault classes.

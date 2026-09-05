@@ -1,5 +1,5 @@
 """
-api/schemas.py — Pydantic models for HVAC Health Scoring API request/response validation.
+api/schemas.py: Pydantic models for building-level HVAC anomaly scoring.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field, field_validator
 
 class SensorReading(BaseModel):
     """
-    A single sensor snapshot for one HVAC unit at one timestep.
+    A single processed meter/weather feature row for one building system.
 
     In a production BMS integration, readings arrive at 15-minute or 1-hour intervals.
     For the Kaggle/demo setup, readings are constructed from notebook-processed features.
@@ -34,15 +34,15 @@ class SensorReading(BaseModel):
         return str(value)
 
     # Primary engineered features (required for meaningful score)
-    cop_proxy: float = Field(..., description="Coefficient of Performance estimate", ge=0, le=10)
+    cop_proxy: float = Field(..., description="Weather-normalized chilled-water demand proxy; not measured COP", ge=0, le=10)
     delta_t_supply_proxy: float = Field(
-        ..., description="Supply air temperature differential (°C)", ge=0
+        ..., description="Outdoor-to-fixed-setpoint proxy; no supply/return sensors", ge=0
     )
     delta_t_refrigerant_proxy: float = Field(
-        ..., description="Refrigerant circuit temperature differential (°C)", ge=0
+        ..., description="Outdoor-air to dew-point proxy; no refrigerant sensors", ge=0
     )
     load_ratio: float = Field(
-        ..., description="Actual load / rated capacity", ge=0, le=2.0
+        ..., description="Meter demand / square-footage-based capacity estimate", ge=0, le=2.0
     )
 
     # Rolling features (optional — set to 0 if not available)
@@ -93,29 +93,37 @@ class SensorReading(BaseModel):
 # ---------------------------------------------------------------------------
 
 class SHAPFactor(BaseModel):
-    """A single SHAP explanation factor for the health score."""
+    """A single SHAP explanation factor for the relative anomaly score."""
     feature: str
-    shap_value: float = Field(..., description="Positive = worsens health")
-    direction: str = Field(..., examples=["worsens_health", "improves_health"])
+    shap_value: float = Field(..., description="Signed contribution to the relative score")
+    direction: str = Field(
+        ...,
+        description="Legacy direction label for API compatibility; describes score movement, not equipment condition",
+        examples=["worsens_health", "improves_health"],
+    )
     feature_value: float
 
 
 class ScoreResponse(BaseModel):
-    """Full health score response for one HVAC unit."""
+    """Relative anomaly-score response for one building system."""
     building_id: Optional[str] = None
     health_score: float = Field(
         ...,
         ge=0, le=100,
-        description="0–100 health gauge. 90–100: healthy · 70–89: monitor · 50–69: warning · 0–49: critical",
+        description="0–100 rank-relative display score; presentation bands are not fault classes",
     )
-    health_tier: str = Field(..., examples=["healthy", "monitor", "warning", "critical"])
+    health_tier: str = Field(
+        ...,
+        description="Legacy presentation-band name; not a fault or condition class",
+        examples=["healthy", "monitor", "warning", "critical"],
+    )
     anomaly_flag: int = Field(..., description="1 = anomalous operating point, 0 = normal")
     iforest_score: float = Field(..., description="Raw Isolation Forest decision function score")
     lof_flag: Optional[int] = Field(default=None, description="1 = LOF anomaly (if model loaded)")
     if_lof_agree: Optional[int] = Field(default=None, description="1 = IF and LOF agree")
     top_shap_factors: Optional[list[SHAPFactor]] = Field(
         default=None,
-        description="Top SHAP factors explaining this unit's health score",
+        description="Top SHAP factors explaining this building's relative score",
     )
 
     model_config = {
@@ -142,7 +150,7 @@ class ScoreResponse(BaseModel):
 
 
 class UnitListResponse(BaseModel):
-    """Summary of all scored units, sorted by health score ascending (worst first)."""
+    """Study-snapshot summaries sorted by legacy display score, low first."""
     units: list[dict]
     n_critical: int
     n_warning: int

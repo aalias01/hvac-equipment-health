@@ -1,35 +1,30 @@
 """
-src/features.py — Domain-driven feature engineering for HVAC Equipment Health Scoring.
+src/features.py: HVAC-informed proxy engineering for building anomaly scoring.
 
-All features are grounded in refrigeration thermodynamics and HVAC engineering practice.
-These are not generic time-series features — they come from 3 years of HVAC product
-development at Rheem Manufacturing.
+The ASHRAE dataset supplies building-level chilled-water demand, weather, and metadata.
+It does not supply equipment electrical input, supply/return air temperatures,
+refrigerant temperatures, compressor runtime, or failure labels. The COP, delta-T,
+load, and runtime names below are explicitly approximations for this dataset, not
+measured equipment quantities or validated degradation indicators.
 
-Key features:
-    COP (Coefficient of Performance):
-        The single most important efficiency indicator in refrigeration systems.
-        COP = cooling_output / power_input. A healthy unit operates near its rated COP;
-        declining COP precedes compressor failure by days to weeks.
+Key proxy groups:
+    cop_proxy:
+        Chilled-water demand converted to kWh and divided by a weather-based denominator.
+        Direct power input is unavailable, so this is not measured coefficient of performance.
 
-    delta-T supply:
-        T_supply_air - T_return_air. Measures heat exchange effectiveness across the
-        air-side coil. Narrows as the evaporator coil fouls with debris.
+    delta_t_supply_proxy:
+        Outdoor air temperature minus a fixed 13 C setpoint, clipped at zero.
+        Supply and return air temperatures are unavailable.
 
-    delta-T refrigerant:
-        T_condenser - T_evaporator. Refrigerant circuit efficiency. Widens as refrigerant
-        charge depletes (common leak scenario) or condenser coil fouls.
+    delta_t_refrigerant_proxy:
+        Outdoor air temperature minus dew point, clipped at zero.
+        Condenser and evaporator temperatures are unavailable.
 
-    Load ratio:
-        Actual cooling load / rated capacity. Units operating near 100% load ratio
-        for extended periods accumulate stress. High load + low COP = failure zone.
+    load_ratio:
+        Chilled-water demand divided by a square-footage-based capacity estimate.
 
-    Runtime fraction:
-        Hours running / hours in period. High runtime at degraded efficiency signals
-        the unit is working harder to meet setpoint — a classic early-warning pattern.
-
-    Rolling COP deviation:
-        COP vs. unit's own 30-day rolling mean. Catches slow degradation trends that
-        threshold-based alarms miss — COP can decline 15% before any hard alarm trips.
+    rolling features:
+        Short-window summaries that provide temporal context to the anomaly detector.
 
 Usage:
     from src.features import load_raw, build_features
@@ -145,7 +140,7 @@ def load_raw(data_dir: str = "data/raw/") -> pd.DataFrame:
 
 def add_cop_features(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Compute Coefficient of Performance (COP) and related efficiency metrics.
+    Compute a weather-normalized cooling-demand proxy.
 
     COP = cooling_output_kWh / power_input_kWh
 
@@ -243,7 +238,7 @@ def add_rolling_features(
     Add rolling mean and standard deviation features per building.
 
     rolling_cop_mean_24h / 168h: short and medium-term COP trend
-    rolling_cop_std_24h: COP volatility — high std can indicate intermittent fault
+    rolling_cop_std_24h: short-window variability of the efficiency proxy
     rolling_cop_deviation: COP vs. unit's own 30-day rolling mean
         Captures slow degradation that absolute thresholds miss.
     rolling_load_mean_24h: operating load trend

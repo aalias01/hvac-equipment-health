@@ -5,11 +5,11 @@ const API_BASE = window.HVAC_API_BASE
   || PRODUCTION_API_BASE;
 
 const FEATURE_GLOSSES = {
-  rolling_cop_std_24h: "COP volatility over 24h",
-  cop_proxy: "COP level",
-  delta_t_supply_proxy: "supply delta-T",
-  delta_t_refrigerant_proxy: "refrigerant delta-T",
-  load_ratio: "load vs rated",
+  rolling_cop_std_24h: "efficiency-proxy variability over 24h",
+  cop_proxy: "weather-normalized cooling proxy",
+  delta_t_supply_proxy: "outdoor-to-setpoint proxy",
+  delta_t_refrigerant_proxy: "air-to-dew-point proxy",
+  load_ratio: "meter-demand to estimated-capacity proxy",
 };
 
 const state = {
@@ -299,10 +299,10 @@ function renderScore(data, context = null) {
 
   els.scoreValue.textContent = score.toFixed(1);
   els.scoreValue.classList.toggle("is-critical", tier === "critical");
-  const label = context?.title ? context.title.toLowerCase() : `${tier} tier`;
-  els.scoreLabel.textContent = `reading health · ${label}`;
+  const label = context?.title ? context.title.toLowerCase() : `${tierDisplay(tier)} band`;
+  els.scoreLabel.textContent = `relative anomaly score · ${label}`;
   els.tierChip.hidden = false;
-  els.tierChip.textContent = tier;
+  els.tierChip.textContent = tierDisplay(tier);
   els.tierChip.className = `tier-chip tier-chip--${tier}`;
   renderHealthScale(score, tier);
   renderCrossCheck(data);
@@ -332,7 +332,7 @@ function renderHealthScale(score = null, tier = null) {
     ? Object.entries(state.health.tiers)
         .map(([name, value]) => `
           <line class="boundary" x1="${scaleX(value)}" y1="24" x2="${scaleX(value)}" y2="76" />
-          <text class="threshold-label" x="${scaleX(value)}" y="15">${name}</text>
+          <text class="threshold-label" x="${scaleX(value)}" y="15">${tierDisplay(name)}</text>
         `)
         .join("")
     : "";
@@ -341,7 +341,7 @@ function renderHealthScale(score = null, tier = null) {
     : `<polygon class="marker ${tier === "critical" ? "is-critical" : ""}" points="${scaleX(score)},44 ${scaleX(score) - 7},30 ${scaleX(score) + 7},30" />`;
 
   els.healthScale.innerHTML = `
-    <svg class="health-svg" viewBox="0 0 600 112" role="img" aria-label="Health score scale: warning at 50, monitor at 70, healthy at 90">
+    <svg class="health-svg" viewBox="0 0 600 112" role="img" aria-label="Rank-relative anomaly score scale">
       <line class="baseline" x1="${minX}" y1="${y}" x2="${maxX}" y2="${y}" />
       ${minorTicks.join("")}
       ${boundaries}
@@ -557,6 +557,15 @@ function readInteger(id) {
 
 function sanitizeTier(value) {
   return ["healthy", "monitor", "warning", "critical"].includes(value) ? value : "critical";
+}
+
+function tierDisplay(value) {
+  return {
+    healthy: "highest-score",
+    monitor: "mid-score",
+    warning: "low-score",
+    critical: "lowest-score",
+  }[value] || value;
 }
 
 function glossFeature(feature) {

@@ -1,6 +1,6 @@
-# HVAC Equipment Health Scoring
+# HVAC Building Anomaly Scoring
 
-Scores the health of HVAC units (0 to 100) from operational sensor data and explains each score with SHAP. Features are physics-derived: COP, temperature deltas, load ratio. I spent 3 years in product development at Rheem Manufacturing working on these systems, and the feature set comes from that domain knowledge rather than generic time-series statistics.
+Ranks unusual building-level chilled-water operation from ASHRAE meter, weather, and building-metadata rows, then explains each relative score with SHAP. The COP and delta-T fields are HVAC-informed proxies built for this dataset, not measured equipment telemetry or validated failure indicators.
 
 [![Python](https://img.shields.io/badge/Python-3.11-blue)](https://www.python.org/)
 [![scikit-learn](https://img.shields.io/badge/scikit--learn-1.7-orange)](https://scikit-learn.org/)
@@ -12,31 +12,31 @@ Scores the health of HVAC units (0 to 100) from operational sensor data and expl
 
 ## Why
 
-HVAC systems fail in predictable ways: compressor fouling, refrigerant charge loss, heat exchanger degradation. Most operators still react after failure. This project detects the degradation early from hourly meter data, without needing labeled failures.
+Building energy data can reveal unusual operating patterns even when failure labels are unavailable. This project tests that narrower question on hourly chilled-water demand and outdoor weather. It does not establish early equipment degradation or diagnose a specific compressor, refrigerant circuit, or coil fault.
 
 ## The features
 
 | Feature | Formula | What it signals |
 |---------|---------|-----------------|
-| COP | Cooling output / power input | The best single efficiency indicator in refrigeration; declining COP signals compressor wear before any alarm triggers |
-| Delta-T supply | T_supply_air - T_return_air | Heat exchange effectiveness; narrows as the coil fouls |
-| Delta-T refrigerant | T_condenser - T_evaporator | Refrigerant circuit efficiency; widens as charge depletes |
-| Load ratio | Actual load / rated capacity | High load ratio plus declining COP is the imminent-failure zone |
-| Runtime fraction | Hours running / hours in period | High runtime plus poor COP means degradation is accumulating |
-| Rolling COP deviation | COP vs 30-day rolling mean | Catches slow drift that threshold alarms miss |
+| Cooling-efficiency proxy | Chilled-water meter reading converted to kWh, divided by a weather-based denominator | A normalized meter-demand feature; direct input power is unavailable, so this is not measured COP |
+| Outdoor-to-setpoint proxy | `max(outdoor air temperature - 13°C, 0)` | Load context only; supply and return air temperatures are unavailable |
+| Air-to-dew-point proxy | `max(outdoor air temperature - dew point, 0)` | Ambient moisture/temperature spread; condenser and evaporator temperatures are unavailable |
+| Load-ratio proxy | Chilled-water demand / square-footage-based capacity estimate | Relative demand against a rule-of-thumb building capacity, not measured equipment loading |
+| Runtime proxy | Fraction of recent hours with nonzero chilled-water demand | Building-meter activity, not compressor runtime telemetry |
+| Rolling proxy statistics | 24-hour and 7-day means, spreads, and deviations | Temporal context for the anomaly detector, not proven fault lead time |
 
 ## Results
 
 | Metric | Value | Notes |
 |--------|-------|-------|
 | Readings scored | 2,876,400 | Hourly chilled-water readings (4.18M raw, filtered for rolling-history coverage) |
-| Units analyzed | 497 | Buildings with at least 90 days of meter coverage |
+| Buildings analyzed | 497 | Buildings with at least 90 days of meter coverage |
 | Anomaly rate (contamination=0.05) | 5.0% (143,820 readings) | Sensitivity-checked at 0.02 / 0.05 / 0.10; every point flagged at 0.02 stays flagged at 0.05 |
-| Unit health scores | 35.0 to 74.0, median 58.6 | Per-unit mean of the reading-level score; the live fleet strip presents rank-relative bands |
-| Top SHAP feature | `rolling_cop_std_24h` | 24-hour COP volatility (an intermittent-fault signature) outranks COP level itself |
+| Relative display scores | 35.0 to 74.0, median 58.6 | Per-building mean of the reading-level anomaly display; bands are not condition classes |
+| Top SHAP feature | `rolling_cop_std_24h` | 24-hour variability of the cooling-efficiency proxy contributed most to detector scores |
 | LOF vs Isolation Forest agreement | 91.3% | On a 100k-reading comparison sample |
 
-![Health score distribution](figures/03_health_score_distribution.png)
+![Relative anomaly-score distribution](figures/03_health_score_distribution.png)
 
 ![SHAP summary](figures/03_shap_summary.png)
 
@@ -45,16 +45,16 @@ See the [model card](models/MODEL_CARD.md) for score meaning, detector limits, a
 ## How it works
 
 ```
-ASHRAE meter data (hourly: temps, power, flow)
+ASHRAE data (hourly chilled-water meter + weather + building metadata)
         |
 feature engineering (src/features.py)
-  COP, delta-T, load ratio, runtime fraction, rolling 24h/7d stats
+  explicitly labeled efficiency, delta-T, load, runtime proxies + rolling stats
         |
 anomaly detection (src/scorer.py)
   Isolation Forest (primary), LOF (comparison), contamination 0.05
         |
-health score 0-100, per-unit normalized
-  SHAP explains which sensor drove each unit's score
+relative anomaly score 0-100, normalized per building system
+  SHAP explains which proxy feature drove each score
         |
 FastAPI (shared HF Space)  <->  vanilla JS operations wall (Vercel)
   scored fleet snapshot, curated demo readings, detector cross-check
@@ -117,7 +117,8 @@ pytest -q
 
 ## Limitations
 
-- ASHRAE meters are building-level, so "unit" here means a building's chilled-water system, not an individual compressor. The physics features still apply, but a real deployment would use equipment-level telemetry.
+- ASHRAE meters are building-level, so "unit" here means a building's chilled-water system, not an individual compressor.
+- Direct electrical input, supply/return air temperatures, condenser/evaporator temperatures, equipment runtime, alarms, work orders, and failure outcomes are absent. The named COP and delta-T fields are proxies and must not be presented as those measurements.
 - Anomaly detection is unsupervised; there are no ground-truth failure labels in this dataset to compute precision or recall against.
 - The shared Hugging Face CPU Space sleeps after extended inactivity; the first request to this route can take a moment while the service wakes and loads its models.
 

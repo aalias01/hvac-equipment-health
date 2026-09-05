@@ -1,18 +1,17 @@
 """
-api/main.py — FastAPI application for HVAC Equipment Health Scoring.
+FastAPI application for building-level chilled-water operating-anomaly scoring.
 
 Endpoints:
     GET  /              → project description and links
     GET  /health        → API health check + scorer status
-    GET  /units         → summary scores for all units (dashboard view)
-    POST /score         → score a single HVAC unit sensor snapshot
-    POST /score/batch   → score multiple units in one request
+    GET  /units         → summary relative scores for all buildings
+    POST /score         → score one processed meter/weather proxy row
+    POST /score/batch   → score multiple proxy rows
 
 Start locally:
     uvicorn api.main:app --reload
 
-Deploy:
-    Render reads render.yaml (buildCommand + startCommand configured there).
+The public route is mounted in the shared Hugging Face Docker Space.
 """
 
 from __future__ import annotations
@@ -51,11 +50,10 @@ async def lifespan(app: FastAPI):
 # ---------------------------------------------------------------------------
 
 app = FastAPI(
-    title="HVAC Equipment Health Scoring API",
+    title="HVAC Building Anomaly Scoring API",
     description=(
-        "Scores HVAC unit health (0–100) from sensor data using Isolation Forest "
-        "anomaly detection and domain-engineered features (COP, ΔT, load ratio). "
-        "Built by an engineer who spent 3 years designing HVAC systems at Rheem Manufacturing."
+        "Ranks building-level chilled-water operating anomalies with Isolation Forest. "
+        "Inputs are meter, weather, and metadata proxies, not equipment telemetry or failure labels."
     ),
     version="0.1.0",
     lifespan=lifespan,
@@ -86,10 +84,10 @@ app.add_middleware(
 @app.get("/", response_class=JSONResponse)
 def root():
     return {
-        "project": "HVAC Equipment Health Scoring",
+        "project": "HVAC Building Anomaly Scoring",
         "description": (
-            "End-to-end anomaly detection for HVAC systems using domain-engineered features "
-            "(COP, ΔT, load ratio) built from refrigeration physics knowledge."
+            "Building-level anomaly ranking using chilled-water meter, weather, and metadata proxies. "
+            "Scores are relative and are not validated equipment-failure predictions."
         ),
         "endpoints": {
             "health":     "GET /health",
@@ -119,8 +117,8 @@ def health():
 @app.get("/units", response_model=UnitListResponse)
 def get_units():
     """
-    Return a summary of health scores for all units in the training corpus.
-    Sorted worst-first (lowest health score at top) for triage prioritization.
+    Return relative display scores for buildings in the study snapshot.
+    Sorted low-score first. The order is not a maintenance-dispatch recommendation.
     """
     if not predictor.is_ready():
         raise HTTPException(
@@ -155,10 +153,10 @@ def score_unit(
     shap: bool = Query(default=True, description="Include SHAP explanations in response"),
 ):
     """
-    Score a single HVAC unit sensor snapshot.
+    Score one processed meter/weather proxy row.
 
-    Returns a 0–100 health score, health tier (healthy/monitor/warning/critical),
-    anomaly flag, and top SHAP factors explaining the score.
+    Returns the legacy 0–100 score/tier fields, an anomaly flag, and SHAP
+    associations. These fields are not equipment health or failure predictions.
     """
     if not predictor.is_ready():
         raise HTTPException(

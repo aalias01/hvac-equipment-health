@@ -1,18 +1,16 @@
 """
-src/scorer.py — Health score computation and anomaly detection for HVAC units.
+Rank-relative anomaly scoring for building chilled-water meter/weather features.
 
 Pipeline:
     Feature matrix (from src/features.py)
         → Isolation Forest (primary anomaly detector)
         → LOF comparison
-        → Anomaly score → 0–100 health score (inverted, per-unit normalized)
-        → SHAP explanations (which sensors drive this unit's score)
+        → 0–100 rank-relative display score (per-building normalized)
+        → SHAP explanations of model associations
 
-Health score interpretation:
-    90–100: Healthy — normal operating range
-    70–89:  Monitor — slightly degraded efficiency, watch trends
-    50–69:  Warning — investigate; likely declining COP or ΔT drift
-    0–49:   Critical — anomalous operating point; schedule inspection
+The persisted API field names ``health_score`` and ``health_tier`` are retained for
+backward compatibility. They are presentation bands, not equipment-condition or
+failure classes. The source data contain no equipment telemetry or failure labels.
 
 Usage:
     from src.scorer import Scorer
@@ -36,7 +34,7 @@ from sklearn.preprocessing import StandardScaler
 
 
 # ---------------------------------------------------------------------------
-# Health score thresholds
+# Legacy display-band thresholds. Names are preserved for API compatibility.
 # ---------------------------------------------------------------------------
 
 THRESHOLDS = {
@@ -69,12 +67,12 @@ def score_to_tier(score: float) -> str:
 
 class Scorer:
     """
-    HVAC unit health scorer: Isolation Forest + LOF + 0–100 health gauge.
+    Building-level anomaly scorer: Isolation Forest + LOF + 0–100 relative display.
 
     Args:
-        contamination: expected fraction of anomalous operating points (default 0.05)
-            Set based on industry rule of thumb: ~5% of readings are genuinely
-            anomalous. Validated against physical outliers in EDA.
+        contamination: fixed fraction used to define Isolation Forest flags (default 0.05).
+            The flag rate is therefore partly set by design and is not an observed
+            equipment-failure prevalence. Sensitivity runs compare alternate settings.
         n_estimators: number of trees in Isolation Forest (default 200)
         use_lof: also train a LOF model for comparison (default True)
     """
@@ -162,10 +160,10 @@ class Scorer:
         building_id: Optional[str] = None,
     ) -> float:
         """
-        Convert Isolation Forest decision_function score to 0–100 health score.
+        Convert Isolation Forest decision_function score to the legacy 0–100 display field.
 
         The decision_function returns higher values for more normal points.
-        We invert and normalize: low anomaly score → high health score.
+        Normalize so more model-normal readings receive a higher display value.
 
         If unit-level stats exist, use per-unit normalization (better for
         units with systematically different operating profiles).
@@ -178,7 +176,7 @@ class Scorer:
             # Global normalization
             normalized = (raw_score + 0.5) / 0.5  # IF scores typically in [-0.5, 0.5]
 
-        # Clip and convert to 0–100 (higher = healthier)
+        # Clip and convert to 0–100 (higher = more model-normal, not healthier equipment)
         health = float(np.clip(normalized * 100, 0, 100))
         return health
 
@@ -188,7 +186,7 @@ class Scorer:
         building_ids: Optional[pd.Series] = None,
     ) -> pd.DataFrame:
         """
-        Score new data. Returns a DataFrame with health scores and anomaly flags.
+        Score new data. Returns legacy score/tier fields and anomaly flags.
 
         Returns columns:
             building_id (if provided), health_score (0–100), health_tier,
@@ -277,8 +275,8 @@ class Scorer:
         Compute SHAP values for the Isolation Forest model.
 
         Returns a DataFrame of shape (n_samples, n_features) with SHAP values.
-        Positive SHAP = feature pushes toward anomaly (lowers health score).
-        Negative SHAP = feature pushes toward normal (raises health score).
+        Positive SHAP = model association toward anomaly (lowers display score).
+        Negative SHAP = model association toward normal (raises display score).
         """
         import shap
         X_scaled = self.scaler.transform(X)

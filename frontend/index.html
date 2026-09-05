@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Unit health · HVAC fleet scoring</title>
+  <title>Building anomaly · HVAC meter scoring</title>
   <script>
     (function () {
       var cookie = document.cookie.split("; ").find(function (part) {
@@ -23,8 +23,8 @@
   <header class="nameplate">
     <div class="nameplate__main">
       <div>
-        <h1>Unit health</h1>
-        <p>Scores HVAC units 0 to 100 from meter data. Features from 3 years at Rheem. Built by Alvin Alias.</p>
+        <h1>Building anomaly</h1>
+        <p>Ranks chilled-water operating patterns from meter, weather, and building proxies. No equipment telemetry or failure labels. Built by Alvin Alias.</p>
       </div>
       <div class="nameplate__number">
         <strong>497 units / 2.88M readings</strong>
@@ -123,7 +123,7 @@
       </section>
     </details>
 
-    <section class="faceplate" aria-label="Unit health scorer">
+    <section class="faceplate" aria-label="Building anomaly scorer">
       <div class="controls">
         <button class="primary-run" id="score-fleet" type="button">Score a demo scenario</button>
         <p class="helper">Draws a complete historical reading from curated normal, watch, elevated, and high-attention examples.</p>
@@ -132,23 +132,23 @@
           <summary>Enter readings yourself</summary>
           <div class="manual__grid">
             <label>
-              <span>COP</span>
-              <small>cooling out per watt in</small>
+              <span>Cooling-efficiency proxy</span>
+              <small>weather-normalized chilled-water demand, not measured COP</small>
               <input id="cop" type="number" step="0.01" min="0" max="10" inputmode="decimal" />
             </label>
             <label>
-              <span>Supply delta-T (C)</span>
-              <small>air temperature drop across the coil</small>
+              <span>Outdoor-to-setpoint proxy (C)</span>
+              <small>outdoor air minus fixed 13 C, not supply/return delta-T</small>
               <input id="delta-t-supply" type="number" step="0.1" min="0" inputmode="decimal" />
             </label>
             <label>
-              <span>Refrigerant delta-T (C)</span>
-              <small>condenser minus evaporator</small>
+              <span>Air-to-dew-point proxy (C)</span>
+              <small>ambient spread, not condenser/evaporator delta-T</small>
               <input id="delta-t-refrigerant" type="number" step="0.1" min="0" inputmode="decimal" />
             </label>
             <label>
-              <span>Load ratio</span>
-              <small>load vs rated capacity</small>
+              <span>Load-ratio proxy</span>
+              <small>meter demand vs square-footage capacity estimate</small>
               <input id="load-ratio" type="number" step="0.01" min="0" max="2" inputmode="decimal" />
             </label>
             <label>
@@ -180,11 +180,11 @@
       <div class="reading">
         <div class="reading__top">
           <strong id="score-value" title="API field: health_score">--</strong>
-          <span id="score-label">health</span>
+          <span id="score-label">relative anomaly score</span>
           <span class="tier-chip tier-chip--critical" id="tier-chip" hidden>critical</span>
         </div>
 
-        <div class="scale-wrap" id="health-scale" aria-label="Health scale from 0 to 100"></div>
+        <div class="scale-wrap" id="health-scale" aria-label="Rank-relative display scale from 0 to 100"></div>
 
         <div class="warmup warmup--main" id="warmup-main" hidden>
           <svg viewBox="0 0 300 46" aria-hidden="true">
@@ -247,13 +247,13 @@
             <tr><td>Anomaly rate 5.0% at contamination 0.05 · every point flagged at 0.02 stays flagged at 0.05</td></tr>
             <tr><td>Unit baseline scores 35.0 to 74.0, median 58.6 · fleet strip shown as rank-relative bands</td></tr>
             <tr><td>LOF vs Isolation Forest agreement 91.3% on a 100k sample</td></tr>
-            <tr><td>Top factor: 24-hour COP volatility, an intermittent-fault signature, outranking COP level itself</td></tr>
+            <tr><td>Top factor: 24-hour cooling-proxy variability; this explains detector score, not confirmed equipment faults</td></tr>
           </tbody>
         </table>
       </details>
       <details>
-        <summary>How it works · COP, delta-T, load ratio, from the Rheem years</summary>
-        <p>the features are the physics I watched at Rheem: COP as the single best efficiency signal, supply delta-T narrowing as coils foul, refrigerant delta-T widening as charge depletes, load ratio because high load plus falling COP is the danger zone; Isolation Forest scores, LOF cross-checks, no labels required.</p>
+        <summary>How it works · building-meter and weather proxies</summary>
+        <p>The detector combines chilled-water demand, outdoor weather, square footage, time, and rolling context. HVAC experience informed the hypotheses, but the source data do not contain input power, equipment temperatures, runtime, work orders, alarms, or failures.</p>
       </details>
       <details>
         <summary>Notes · no failure labels exist; this reads anomaly structure</summary>
@@ -261,7 +261,7 @@
           <li>This ML demo sleeps after extended inactivity. First wake can take a moment; runs after that are quick.</li>
           <li>No failure labels exist in this data. The score reads anomaly structure, and the LOF cross-check is the only independent witness, which is why it prints with every run.</li>
           <li>The fleet board is a scored snapshot of the study data, not a live feed; every unit on it is real and every score was computed by the model.</li>
-          <li>Demo scoring uses complete historical readings with rolling context; manual scoring estimates rolling context from the entered COP and load values.</li>
+          <li>Demo scoring uses complete historical feature rows with rolling context; manual scoring estimates rolling context from the entered proxy values.</li>
         </ol>
       </details>
     </section>
